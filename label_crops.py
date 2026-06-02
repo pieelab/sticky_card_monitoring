@@ -304,27 +304,46 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         test_loader = DataLoader(test_set, batch_size=self.batch_size, num_workers=self.num_workers)
         return test_loader
 
-    def load_model(self, pretrained = None):
+    def load_model(self, pretrained = None, backbone='resnet50'):
+        self.backbone_type = backbone
+
         if pretrained is not None:
             self.model = pretrained
+        elif backbone == 'resnet50':
+            self.model = my_resnet50(
+                weights=ResNet50_Weights.IMAGENET1K_V1, 
+                original = (self.mean_npb is None)
+            )
+            self.model.fc = nn.Sequential(
+                nn.Linear(
+                    in_features=self.model.fc.in_features + (self.mean_npb is not None),
+                    out_features=256
+                ),
+                    nn.ReLU(inplace=True),
+                    nn.Linear(in_features=256, out_features=self.num_classes)
+            )
+        elif backbone.startswith('dinov2'):
+            if self.mean_npb is None:
+                self.model = OrigDINOv2(self.num_classes, model_name=backbone)
+            else:
+                self.model = SizeDINOv2(self.num_classes, model_name=backbone)
         else:
-            self.model = my_resnet50(weights=ResNet50_Weights.IMAGENET1K_V1, original = (self.mean_npb is None))
-            self.model.fc = nn.Sequential(nn.Linear(in_features=self.model.fc.in_features + (self.mean_npb is not None),
-                                                    out_features=256),
-                                          nn.ReLU(inplace=True),
-                                          nn.Linear(in_features=256, out_features=self.num_classes))
+            raise ValueError(f"Unknown backbone: {backbone}, Choose 'resnet50' or a dinov2 variant.")
 
         if self.freeze_backbone:
             for param in self.model.parameters():
                 param.requires_grad = False
 
+        # unfreeze the classification head
         for param in self.model.fc.parameters():
             param.requires_grad = True
 
-        for name, layer in self.model.named_children():
-            if name in ['conv1', 'bn1', 'layer1', 'layer2']:
-                for param in layer.parameters():
-                    param.requires_grad = False
+        # For resnet: also freeze early layers explicitly
+        if backbone == 'resnet50':
+            for name, layer in self.model.named_children():
+                if name in ['conv1', 'bn1', 'layer1', 'layer2']:
+                    for param in layer.parameters():
+                        param.requires_grad = False
 
         with open(f"C:\\Users\\ALANalysis\\flat-bug\\src\\A_rubi_training\\run_notes_{self.id}.csv", 'a') as rn:
             #rn.write('ID, Epoch, Training_loss, validation_loss, validation_accuracy' + '\n')
