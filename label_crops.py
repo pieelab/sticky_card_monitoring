@@ -17,6 +17,7 @@ import torchvision.transforms.functional as F
 import torch.nn as nn
 #import open_clip
 import torch.optim.lr_scheduler as lr_scheduler
+import torch.hub
 
 def extract_info(filename):
     w, h, npb, npa = filename.split("_")[-4:]
@@ -79,7 +80,22 @@ class OrigResNet50(ResNet):
         x = self.fc(x)
 
         return x
-
+    
+class OrigDINOv2(nn.Module):
+    def __init__(self, num_classes, model_name='dinov2_vitb14'):
+        super().__init__()
+        self.backbone = torch.hub.load('facebookresearch/dinov2', model_name)
+        self.embed_dim = self.backbone.embed_dim # 768 for vitb14
+        self.fc = nn.Sequential(
+            nn.Linear(self.embed_dim, 256),
+            nn.ReLU(inplace=True),
+            nn.Linear(256, num_classes)
+        )
+    def forward(self, input):
+        x = input["img"]
+        x = self.backbone(x) # returns CLS token embedding
+        return self.fc(x)
+    
 def my_resnet(
         block,
         layers,
