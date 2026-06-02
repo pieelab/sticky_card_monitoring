@@ -96,6 +96,23 @@ class OrigDINOv2(nn.Module):
         x = self.backbone(x) # returns CLS token embedding
         return self.fc(x)
     
+class SizeDINOv2(nn.Module):
+    def __init__(self, num_classes, model_name='dinov2_vitb14'):
+        super().__init__()
+        self.backbone = torch.hub.load('facebookresearch/dinov2', model_name)
+        self.embed_dim = self.backbone.embed_dim
+        self.fc = nn.Sequential(
+            nn.Linear(self.embed_dim + 1, 256), # + 1 for npb
+            nn.ReLU(inplace=True),
+            nn.Linear(256, num_classes)
+        )
+    def forward(self, input):
+        x = input["img"]
+        npb = input["npb"].reshape(x.shape[0], 1)
+        x = self.backbone(x)
+        x = torch.cat((x, npb), dim=1)
+        return self.fc(x)
+    
 def my_resnet(
         block,
         layers,
