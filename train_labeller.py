@@ -18,8 +18,6 @@ import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 
-
-
 def cli_args():
     args_parse = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     args_parse.add_argument("-i", "--id", type=str, dest="id_num", required=True,
@@ -156,7 +154,7 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         print(f"Loading data")
 
         train_loader, val_loader = classifier.load_data()
-        classifier.load_model()
+        classifier.load_model(backbone=arch)
         print(f"Fitting SegmentClassifier")
         history = classifier.fit(num_epochs=100, unfreeze_after=10, train_loader=train_loader, val_loader=val_loader)
         val_targets_labels = []
@@ -185,7 +183,7 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
                                        loss_weights=True, mean_npb=MEAN_NPB, std_npb=STD_NPB)
         pretrained = torch.load(model_path)
         train_loader, val_loader = classifier.load_data()
-        classifier.load_model(pretrained)
+        classifier.load_model(pretrained, backbone=arch)
         print(f"Fitting pretrained SegmentClassifier")
         history = classifier.fit(num_epochs=1, unfreeze_after=10, train_loader=train_loader, val_loader=val_loader)
         print("Finished")
@@ -247,11 +245,8 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
     #     sub = sub.sort_values(by='id')
     #     sub.to_csv(test_data_dir + "train.csv", index=False)
 
-
-
 def main():
     classify(**cli_args())
-
 
 if __name__ == '__main__':
     main()
