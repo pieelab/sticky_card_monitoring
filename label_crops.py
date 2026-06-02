@@ -379,12 +379,21 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         else:
             self.criterion = nn.CrossEntropyLoss(reduction = 'none')
 
-    def load_inference_model(self):
-        self.model = my_resnet50(original=(self.mean_npb is None))
-        self.model.fc = nn.Sequential(nn.Linear(in_features=self.model.fc.in_features + (self.mean_npb is not None),
-                                                out_features=256),
-                                      nn.ReLU(inplace=True),
-                                      nn.Linear(in_features=256, out_features=self.num_classes))
+    def load_inference_model(self, backbone='resnet50'):
+        if backbone == 'resnet50':
+            self.model = my_resnet50(original=(self.mean_npb is None))
+            self.model.fc = nn.Sequential(
+                nn.Linear(
+                    in_features=self.model.fc.in_features + (self.mean_npb is not None),
+                    out_features=256
+                ),
+                nn.ReLU(inplace=True),
+                nn.Linear(in_features=256, out_features=self.num_classes))
+        elif backbone.startswith('dinov2'):
+            if self.mean_npb is None:
+                self.model = OrigDINOv2(self.num_classes, model_name=backbone)
+            else:
+                self.model = SizeDINOv2(self.num_classes, model_name=backbone)
         self.model = self.model.to(self.device)
 
     def fit_one_epoch(self, train_loader, epoch, num_epochs, start_timestamp):
