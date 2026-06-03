@@ -40,8 +40,7 @@ def cli_args():
     return vars(args)
 
 
-
-def plot_training_history(history):
+def plot_training_history(history, run_id):
     """Plots the training and validation loss and accuracy."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
@@ -67,7 +66,7 @@ def plot_training_history(history):
     ax2.grid(True)
 
     plt.tight_layout()
-    plt.show()
+    plt.savefig(os.path.join("..", "outputs", "train", f"training_history_{run_id}.png"))
 
 def split_data(source_data_dir, destination_data_dir):
     filenames = defaultdict(list)
@@ -169,11 +168,11 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         except:
             print("Could not save")
 
-        #plot_training_history(history)
+        plot_training_history(history, run_id=run_id)
 
         cm = confusion_matrix(val_targets_labels, val_preds_labels)
         ConfusionMatrixDisplay(cm, display_labels=list(val_loader.dataset.class_to_idx.keys())).plot()
-        plt.show()
+        plt.savefig(os.path.join("..", "outputs", "train", f"confusion_matrix_{run_id}.png"))
         # current_datetime = datetime.datetime.now()
         print("stop")
     else:
