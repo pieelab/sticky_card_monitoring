@@ -306,6 +306,48 @@ def my_resnet(
         original=True,
         **kwargs,
 ) -> SizeResNet50:
+    """
+    Build a resnet50 model, either standard or size-aware.
+
+    Constructs either an ``OrigResNet50`` or ``SizeResNet50`` depending on
+    the ``original`` flag, and optionally loads pretrained weights.
+
+    Parameters
+    ----------
+    block : nn.Module
+        The residual block type to use. For ResNet50 this should be
+        ``Bottleneck``.
+    layers : list of int
+        Number of residual blocks in each of the 4 layers, e.g. ``[3, 4, 6, 3]``
+        for ResNet50.
+    weights : ResNet50_Weights or None
+        Pretrained weights to load into the model. If ``None``, the model
+        is initialised with random weights.
+    progress : bool
+        If ``True``, displays a progress bar when downloading pretrained
+        weights.
+    original : bool, optional
+        If ``True`` (default), constructs an ``OrigResNet50`` (standard
+        ResNet50). If ``False``, constructs a ``SizeResNet50`` that
+        additionally accepts ``npb`` (number of pixels before resizing) as
+        an input feature.
+    **kwargs
+        Additional keyword arguments forwarded to the model constructor.
+
+    Returns
+    -------
+    SizeResNet50
+        The constructed ResNet50 model with weights loaded if provided.
+        Note that an ``OrigResNet50`` instance may be returned when
+        ``original=True``, despite the type hint.
+    
+    See Also
+    --------
+    my_resnet50 : Convenience wrapper with ResNet50 architecture pre-configured.
+    SizeResNet50 : Size-aware model that appends ``npb`` before the final layer.
+    OrigResNet50 : Standard ResNet50 without size awareness.
+
+    """
     if original:
         model = OrigResNet50(block, layers, **kwargs)
     else:
@@ -317,6 +359,58 @@ def my_resnet(
     return model
 
 def my_resnet50(*, original=True, weights=None, progress=True, **kwargs) -> SizeResNet50:
+    """
+    Construct a ResNet50 model with pre-configured architecture settings.
+
+    A convenience wrapper around ``my_resnet`` that fixes the block type and
+    layer configuration to those of ResNet50, and validates the provided
+    weights before building the model.
+
+    Parameters
+    ----------
+    original : bool, optional
+        If ``True`` (default), constructs an ``OrigResNet50`` (standard
+        ResNet50). If ``False``, constructs a ``SizeResNet50`` that
+        additionally accepts ``npb`` (number of pixels before resizing) as
+        an input feature.
+    weights : ResNet50_Weights or None, optional
+        Pretrained weights to load into the model. Verified via
+        ``ResNet50_Weights.verify`` before use. If ``None`` (default),
+        the model is initialised with random weights.
+    progress : bool, optional
+        If ``True`` (default), displays a progress bar when downloading
+        pretrained weights.
+    **kwargs
+        Additional keyword arguments forwarded to the model constructor.
+
+    Returns
+    -------
+    SizeResNet50
+        The constructed ResNet50 model. Note that an ``OrigResNet50``
+        instance may be returned when ``original=True``, despite the
+        type hint.
+
+    Raises
+    ------
+    ValueError
+        If ``weights`` is not a valid ``ResNet50_Weights`` value.
+
+    See Also
+    --------
+    my_resnet : The underlying builder function.
+    SizeResNet50 : Size-aware model that appends ``npb`` before the final layer.
+    OrigResNet50 : Standard ResNet50 without size awareness.
+
+    Examples
+    --------
+    Load a size-aware ResNet50 with pretrained ImageNet weights:
+
+    >>> model = my_resnet50(original=False, weights=ResNet50_Weights.IMAGENET1K_V1)
+
+    Load a standard ResNet50 with no pretrained weights:
+
+    >>> model = my_resnet50(original=True, weights=None)
+    """
     weights = ResNet50_Weights.verify(weights)
     return my_resnet(Bottleneck, [3, 4, 6, 3], weights, progress, original=original, **kwargs)
 
