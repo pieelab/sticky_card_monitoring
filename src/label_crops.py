@@ -20,6 +20,27 @@ import torch.optim.lr_scheduler as lr_scheduler
 import torch.hub
 
 def extract_info(filename):
+    """Return key image attributes.
+
+    Parameters
+    ----------
+    filename : string
+    
+    Returns
+    -------
+    w : int
+        width
+    h : int 
+        height
+    npb : int
+        number of pixels before resizing
+    npa : int
+        number of pixels after resizing
+
+    See Also
+    --------
+    utils.rescale-images.py : to see how attributes are calculated / saved.
+    """
     w, h, npb, npa = filename.split("_")[-4:]
     w = int(w)
     h = int(h)
