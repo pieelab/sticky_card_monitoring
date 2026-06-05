@@ -94,7 +94,7 @@ class SizeResNet50(ResNet):
     """ Size aware resnet50 feature extractor and classifier."""
     def _forward_impl(self, input):
         """ 
-        Forward pass of the size-aware ResNet50 feature extractor.
+        Forward pass of the size-aware ResNet50 feature extractor and classifier.
 
         Processes an image through the standard resnet50 backbone layers,
         then concatenates a proxy for object size (npb) to the flattened
@@ -143,7 +143,7 @@ class OrigResNet50(ResNet):
     """ Non-size-aware resnet50 feature extractor and classifier."""
     def _forward_impl(self, input):
         """ 
-        Forward pass of the non-size-aware ResNet50 feature extractor.
+        Forward pass of the non-size-aware ResNet50 feature extractor and classifier.
 
         Processes an image through the standard resnet50 backbone layers then a
         pooled representation before the final fully connected layer. This
@@ -184,7 +184,30 @@ class OrigResNet50(ResNet):
         return x
     
 class OrigDINOv2(nn.Module):
+    """ Non-size-aware dinov2 feature extractor and classifier."""
     def __init__(self, num_classes, model_name='dinov2_vitb14'):
+        """ 
+        Constructor.
+
+        Parameters
+        ----------
+        num_classes : int
+            Number of classes
+        model_name : str, default='dinov2_vitb14'
+            Name of dinov2 model to be used. 
+
+        Attributes
+        ----------
+        backbone : torch.nn.Module
+            Dinov2 backbone model
+        embed_dim : int
+            Dimensions of backbone output
+        fc : torch.nn.Module
+            Fully connected classification layer of the model:
+                - Linear layer (embed_dim -> 256)
+                - ReLU activation function
+                - Linear layer (256 -> num_classes)
+        """
         super().__init__()
         self.backbone = torch.hub.load('facebookresearch/dinov2', model_name)
         self.embed_dim = self.backbone.embed_dim # 768 for vitb14
@@ -193,13 +216,54 @@ class OrigDINOv2(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(256, num_classes)
         )
+        
     def forward(self, input):
+        """
+        Forward pass of the non-size-aware dinov2 feature extractor and classifier.
+
+        Processes image through dinov2 backbone layers before passing through a 
+        fully connected classification layer.
+
+        Parameters
+        ----------
+        input : dict
+            A dictionary containing an img (image).
+
+        Returns
+        -------
+        x : torch.Tensor
+            Output tensor of the model, containing raw class logits for each sample
+            in the batch.
+        """
         x = input["img"]
         x = self.backbone(x) # returns CLS token embedding
         return self.fc(x)
     
 class SizeDINOv2(nn.Module):
+    """ Size-aware dinov2 feature extractor and classifier."""
     def __init__(self, num_classes, model_name='dinov2_vitb14'):
+        """ 
+        Constructor.
+
+        Parameters
+        ----------
+        num_classes : int
+            Number of classes
+        model_name : str, default='dinov2_vitb14'
+            Name of dinov2 model to be used. 
+
+        Attributes
+        ----------
+        backbone : torch.nn.Module
+            Dinov2 backbone model
+        embed_dim : int
+            Dimensions of backbone output
+        fc : torch.nn.Module
+            Fully connected classification layer of the model:
+                - Linear layer (embed_dim + 1 -> 256)
+                - ReLU activation function
+                - Linear layer (256 -> num_classes)
+        """
         super().__init__()
         self.backbone = torch.hub.load('facebookresearch/dinov2', model_name)
         self.embed_dim = self.backbone.embed_dim
@@ -208,7 +272,26 @@ class SizeDINOv2(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(256, num_classes)
         )
+
     def forward(self, input):
+        """
+        Forward pass of the size-aware dinov2 feature extractor and classifier.
+
+        Processes image through dinov2 backbone layers and appends 
+        npb (a proxy for object size) before passing through a fully 
+        connected classification layer.
+
+        Parameters
+        ----------
+        input : dict
+            A dictionary containing an img (image).
+
+        Returns
+        -------
+        x : torch.Tensor
+            Output tensor of the model, containing raw class logits for each sample
+            in the batch.
+        """
         x = input["img"]
         npb = input["npb"].reshape(x.shape[0], 1)
         x = self.backbone(x)
