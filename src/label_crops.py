@@ -24,7 +24,8 @@ def extract_info(filename):
 
     Parameters
     ----------
-    filename : string
+    filename : str
+        Name of image file.
     
     Returns
     -------
@@ -39,7 +40,12 @@ def extract_info(filename):
 
     See Also
     --------
-    utils.rescale-images.py : to see how attributes are calculated / saved.
+    utils.rescale-images.count_mask_pixels : 
+        To see how npb is calculated.
+    utils.rescale-images.pad_scale :
+        To see how npa is calculated.
+    utils.rescale-images :
+        To see how resized images are saved.
     """
     w, h, npb, npa = filename.split("_")[-4:]
     w = int(w)
@@ -50,6 +56,27 @@ def extract_info(filename):
 
 # Function to calculate mean and standard deviation of width and height
 def calculate_mean_std_npb(directory):
+    """ Function to calculate mean and standard deviation of mask pixel counts
+    (before resizing) across all images in a directory, for use in normalizing
+    npb features.
+
+    Parameters
+    ----------
+    directory : str or path-like
+        The path to the input images.
+
+    Returns
+    -------
+    mean_npb
+        Mean number of pixels in mask before resizing.
+    std_npb
+        Standard deviation in mask pixel count before resizing.
+
+    See Also
+    --------
+    utils.rescale-images.count_mask_pixels
+        To see how npb is calculated.
+    """
     npb_list = []
     for root, dirs, files in os.walk(directory):
         for filename in files:
