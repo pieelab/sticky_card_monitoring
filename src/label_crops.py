@@ -20,7 +20,8 @@ import torch.optim.lr_scheduler as lr_scheduler
 import torch.hub
 
 def extract_info(filename):
-    """Return key image attributes.
+    """
+    Return key image attributes.
 
     Parameters
     ----------
@@ -56,7 +57,8 @@ def extract_info(filename):
 
 # Function to calculate mean and standard deviation of width and height
 def calculate_mean_std_npb(directory):
-    """ Function to calculate mean and standard deviation of mask pixel counts
+    """ 
+    Function to calculate mean and standard deviation of mask pixel counts
     (before resizing) across all images in a directory, for use in normalizing
     npb features.
 
@@ -89,7 +91,34 @@ def calculate_mean_std_npb(directory):
 
 # TODO modify OrigResNet50 and SizeResNet50 classes to save class mappings (+ number of classes) as attributes
 class SizeResNet50(ResNet):
+    """ Size aware resnet50 feature extractor and classifier."""
     def _forward_impl(self, input):
+        """ 
+        Forward pass of the size-aware ResNet50 feature extractor.
+
+        Processes an image through the standard resnet50 backbone layers,
+        then concatenates a proxy for object size (npb) to the flattened
+        pooled representation before the final fully connected layer. This
+        allows the model to retain original image size information, which
+        may otherwise be lost after resizing.
+
+        Parameters
+        ----------
+        input : dict
+            A dictionary containing the following keys containing img (image) and
+            npb (number of pixels before resizing). 
+
+        Returns
+        -------
+        x : torch.Tensor
+            Output tensor of the model, containing raw class logits for each sample
+            in the batch.
+
+        See Also
+        --------
+        utils.rescale-images
+            To see how images are rescaled
+        """
         x = input["img"]
         npb = input["npb"]
         x = self.conv1(x)
@@ -111,7 +140,32 @@ class SizeResNet50(ResNet):
         return x
 
 class OrigResNet50(ResNet):
+    """ Non-size-aware resnet50 feature extractor and classifier."""
     def _forward_impl(self, input):
+        """ 
+        Forward pass of the non-size-aware ResNet50 feature extractor.
+
+        Processes an image through the standard resnet50 backbone layers then a
+        pooled representation before the final fully connected layer. This
+        allows the model to retain original image size information, which
+        may otherwise be lost after resizing.
+
+        Parameters
+        ----------
+        input : dict
+            A dictionary containing an img (image).
+
+        Returns
+        -------
+        x : torch.Tensor
+            Output tensor of the model, containing raw class logits for each sample
+            in the batch.
+
+        See Also
+        --------
+        utils.rescale-images
+            To see how images are rescaled
+        """
         x = input["img"]
         x = self.conv1(x)
         x = self.bn1(x)
