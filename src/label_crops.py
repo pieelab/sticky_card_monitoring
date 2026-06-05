@@ -309,27 +309,27 @@ def my_resnet(
     """
     Build a resnet50 model, either standard or size-aware.
 
-    Constructs either an ``OrigResNet50`` or ``SizeResNet50`` depending on
-    the ``original`` flag, and optionally loads pretrained weights.
+    Constructs either an OrigResNet50 or SizeResNet50 depending on
+    the original flag, and optionally loads pretrained weights.
 
     Parameters
     ----------
     block : nn.Module
         The residual block type to use. For ResNet50 this should be
-        ``Bottleneck``.
+        Bottleneck.
     layers : list of int
-        Number of residual blocks in each of the 4 layers, e.g. ``[3, 4, 6, 3]``
+        Number of residual blocks in each of the 4 layers, e.g. [3, 4, 6, 3]
         for ResNet50.
     weights : ResNet50_Weights or None
-        Pretrained weights to load into the model. If ``None``, the model
-        is initialised with random weights.
+        Pretrained weights to load into the model. If None, the model
+        is initialized with random weights.
     progress : bool
-        If ``True``, displays a progress bar when downloading pretrained
+        If True, displays a progress bar when downloading pretrained
         weights.
     original : bool, optional
-        If ``True`` (default), constructs an ``OrigResNet50`` (standard
-        ResNet50). If ``False``, constructs a ``SizeResNet50`` that
-        additionally accepts ``npb`` (number of pixels before resizing) as
+        If True (default), constructs an OrigResNet50 (standard
+        ResNet50). If False, constructs a SizeResNet50 that
+        additionally accepts npb (number of pixels before resizing) as
         an input feature.
     **kwargs
         Additional keyword arguments forwarded to the model constructor.
@@ -344,7 +344,7 @@ def my_resnet(
     See Also
     --------
     my_resnet50 : Convenience wrapper with ResNet50 architecture pre-configured.
-    SizeResNet50 : Size-aware model that appends ``npb`` before the final layer.
+    SizeResNet50 : Size-aware model that appends npb before the final layer.
     OrigResNet50 : Standard ResNet50 without size awareness.
 
     """
@@ -362,23 +362,23 @@ def my_resnet50(*, original=True, weights=None, progress=True, **kwargs) -> Size
     """
     Construct a ResNet50 model with pre-configured architecture settings.
 
-    A convenience wrapper around ``my_resnet`` that fixes the block type and
+    A convenience wrapper around my_resnet that fixes the block type and
     layer configuration to those of ResNet50, and validates the provided
     weights before building the model.
 
     Parameters
     ----------
     original : bool, optional
-        If ``True`` (default), constructs an ``OrigResNet50`` (standard
-        ResNet50). If ``False``, constructs a ``SizeResNet50`` that
-        additionally accepts ``npb`` (number of pixels before resizing) as
+        If True (default), constructs an OrigResNet50 (standard
+        ResNet50). If False, constructs a SizeResNet50 that
+        additionally accepts npb (number of pixels before resizing) as
         an input feature.
     weights : ResNet50_Weights or None, optional
         Pretrained weights to load into the model. Verified via
-        ``ResNet50_Weights.verify`` before use. If ``None`` (default),
-        the model is initialised with random weights.
+        ResNet50_Weights.verify before use. If None (default),
+        the model is initialized with random weights.
     progress : bool, optional
-        If ``True`` (default), displays a progress bar when downloading
+        If True (default), displays a progress bar when downloading
         pretrained weights.
     **kwargs
         Additional keyword arguments forwarded to the model constructor.
@@ -386,51 +386,93 @@ def my_resnet50(*, original=True, weights=None, progress=True, **kwargs) -> Size
     Returns
     -------
     SizeResNet50
-        The constructed ResNet50 model. Note that an ``OrigResNet50``
-        instance may be returned when ``original=True``, despite the
+        The constructed ResNet50 model. Note that an OrigResNet50
+        instance may be returned when original=True, despite the
         type hint.
 
     Raises
     ------
     ValueError
-        If ``weights`` is not a valid ``ResNet50_Weights`` value.
+        If weights is not a valid ResNet50_Weights value.
 
     See Also
     --------
     my_resnet : The underlying builder function.
-    SizeResNet50 : Size-aware model that appends ``npb`` before the final layer.
+    SizeResNet50 : Size-aware model that appends npb before the final layer.
     OrigResNet50 : Standard ResNet50 without size awareness.
 
     Examples
     --------
     Load a size-aware ResNet50 with pretrained ImageNet weights:
-
     >>> model = my_resnet50(original=False, weights=ResNet50_Weights.IMAGENET1K_V1)
 
     Load a standard ResNet50 with no pretrained weights:
-
     >>> model = my_resnet50(original=True, weights=None)
     """
     weights = ResNet50_Weights.verify(weights)
     return my_resnet(Bottleneck, [3, 4, 6, 3], weights, progress, original=original, **kwargs)
 
 class ImageFolderWithPaths(ImageFolder):
-    def __init__(self, mean_npb, std_npb,
-                root: str,
-                transform=None,
-                target_transform=None,
-                is_valid_file=None,
-                ):
-            super().__init__(
-                root,
-                transform=transform,
-                target_transform=target_transform,
-                is_valid_file=is_valid_file,
-            )
-            self.mean_npb = mean_npb
-            self.std_npb = std_npb
+    def __init__(self, mean_npb, std_npb, root: str, transform=None, target_transform=None, is_valid_file=None):
+        """
+        Constructor.
+
+        Parameters
+        ----------
+        mean_npb : int
+            Mean number of pixels before resizing.
+        std_npb : int
+            Standard deviation of the number of pixels before
+            resizing.
+        root : str
+            Root directory.
+        transform : transforms.Compose()
+            Sequence of data transformations.
+        target_transform : transforms.Compose()
+            Sequence of transformations on the target.
+        is_valid_file : bool
+            Boolean to check if file is valid.
+
+        Attributes
+        ----------
+        mean_npb : int
+            Mean number of pixels before resizing.
+        std_npb : int
+            Standard deviation of the number of pixels before
+            resizing.
+        """
+        super().__init__(
+            root,
+            transform=transform,
+            target_transform=target_transform,
+            is_valid_file=is_valid_file,
+        )
+        self.mean_npb = mean_npb
+        self.std_npb = std_npb
 
     def __getitem__(self, index): # obj[index] = {"npb", "path"}[Image, label]
+        """
+        Returns information when accessing the folder.
+
+        Specifically this returns a normalized mean_npb, path,
+        image and label. 
+
+        Parameters
+        ----------
+        index : int
+            Index of the object for which you wish to retrieve
+            information.
+
+        Returns
+        -------
+        _ : dict
+            - npb : normalized mean npb
+            - path : file path
+            - img : image
+        label : str
+            The label describing the image, belonging to one
+            of the classes (for classification).
+        """
         img, label = super().__getitem__(index)
         path = self.imgs[index][0]
         npb_norm = 0
