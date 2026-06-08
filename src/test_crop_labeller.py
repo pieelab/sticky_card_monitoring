@@ -28,6 +28,20 @@ from utils.Flag import Flag
 from utils.Card import Card
 
 def cli_args():
+    """
+    Parse command-line arguments for the classification and annotation pipeline.
+
+    Returns
+    -------
+    dict
+        A dictionary with the following keys:
+
+        - id_num (str): Run ID prefix used to construct a unique run identifier.
+        - scans_dir (str): Path to the directory containing scanned sticky card images.
+        - annot_scans_dir (str): Path to the directory where annotated card images will be saved.
+        - crops_dir (str): Path to the directory containing flatbug-segmented crop images.
+        - model_path (str): Path to the pretrained PyTorch model (.pt file).
+    """
     args_parse = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     args_parse.add_argument("-i", "--id", type=str, dest="id_num", required=True,
                             help="Run ID number")
@@ -44,6 +58,31 @@ def cli_args():
 
 
 def classify_segments(model_path, crops_dir, run_id, mappings):
+    """
+    Run inference on segmented crop images and copy them into class-labelled subdirectories.
+
+    Loads a pretrained PyTorch model, runs inference over all crops in crops_dir,
+    and copies each crop into the corresponding class subfolder in a new output
+    directory. Results are also saved to a CSV file.
+
+    Parameters
+    ----------
+    model_path : str
+        Path to the saved PyTorch model (.pt) to load for inference.
+    crops_dir : str
+        Path to the directory containing crop images to classify.
+    run_id : str
+        Unique run identifier passed to SegmentClassifier.
+    mappings : dict
+        Dictionary mapping integer class indices to class label strings.
+        e.g. {0: 'Arthropod', 1: 'Debris', ...}
+
+    Returns
+    -------
+    destination_crops_dir : str
+        Path to the newly created directory containing crops sorted into
+        class-labelled subdirectories.
+    """
     device = "cuda" if torch.cuda.is_available() else "cpu"
     root_dir = os.path.abspath(join(crops_dir, os.pardir))
     destination_crops_dir = join(root_dir, os.path.basename(crops_dir) + "_classified_test")
@@ -93,6 +132,32 @@ def classify_segments(model_path, crops_dir, run_id, mappings):
     return destination_crops_dir
 
 def make_flag_list(crops_dir, parent, flag_list, card_set):
+    """
+    Scan a directory of classified crop images and populate a flag list grouped by card.
+
+    For each image file in crops_dir, extracts the parent card identifier from the
+    filename using a regex pattern, creates a Flag object, and appends it to the
+    flag_list under that card's key. Also records the card ID in card_set.
+
+    Parameters
+    ----------
+    crops_dir : str
+        Path to the directory of classified crop images (one insect class).
+    parent : str
+        The class label for all crops in this directory (e.g. 'SWD_male').
+        Stored as an attribute on each Flag object.
+    flag_list : collections.defaultdict of list
+        Mapping from card filename (str) to a list of Flag objects. Updated in place.
+    card_set : set
+        Set of card ID strings (without extension). Updated in place.
+
+    Returns
+    -------
+    flag_list : collections.defaultdict of list
+        Updated mapping of card filenames to their associated Flag objects.
+    card_set : set
+        Updated set of card ID strings found in crops_dir.
+    """
     card_match = r'[A-Z]*-[A-Z]*-[0-9]*'
     for crop in os.listdir(crops_dir):
         if crop.endswith((".jpg",".png")) & isfile(join(crops_dir,crop)):
@@ -104,10 +169,38 @@ def make_flag_list(crops_dir, parent, flag_list, card_set):
     return flag_list, card_set
 
 def add_json_data(flag_list, card_id, json_data, colours):
-    # flatbug assigns 2 different cropnumbers. one is overall for each flatbug run, stored in the json
-    # the other one restarts at 0 for every card and is stored in the filename
-    # if the       json cropnumber id for card n's first annotation is m and for card n's xth annotation it is m+x
-    # then the filename cropnumber id for card n's first annotation is 0 and for card n's xth annotation it is x
+    """
+    Match COCO annotations to Flag objects and build a dict of matplotlib Rectangle patches.
+
+    Iterates over all annotations in a COCO-format JSON, determines the starting
+    annotation ID for each card, and matches each annotation to its corresponding
+    Flag object using the crop number embedded in the crop filename. Assigns the
+    bounding box to matched flags and creates a Rectangle patch for each.
+
+    Parameters
+    ----------
+    flag_list : collections.defaultdict of list
+        Mapping from card filename (str) to a list of Flag objects, as returned
+        by make_flag_list.
+    card_id : dict
+        Mapping from COCO image ID (int) to Card objects. Card objects are
+        updated in place with their crop_start_id.
+    json_data : dict
+        Parsed COCO-format JSON containing at minimum "annotations" and "images" keys.
+    colours : dict
+        Mapping from class label (str) to a matplotlib colour string, used to
+        colour the bounding box rectangles. e.g. {'SWD_male': 'b', ...}
+
+    Returns
+    -------
+    flag_list : collections.defaultdict of list
+        Updated flag list with bounding boxes assigned to matched Flag objects.
+    card_id : dict
+        Updated card dict with crop_start_id set on each Card object.
+    rect_list : collections.defaultdict of list
+        Mapping from Card objects to lists of matplotlib Rectangle patches,
+        ready for rendering onto the card image.
+    """
     start_set = False
     start_id = 0
     prev_card_id = None
@@ -137,6 +230,29 @@ def add_json_data(flag_list, card_id, json_data, colours):
 
 
 def annotate_card(card, rects, scans_dir, annot_scans_dir):
+    """
+    Render bounding box annotations onto a scanned sticky card image and save outputs.
+
+    Opens the original scan, overlays all bounding box Rectangle patches, and saves
+    the result as both a high-resolution PDF and a JPEG to their respective subdirectories
+    within annot_scans_dir.
+
+    Parameters
+    ----------
+    card : Card
+        Card object whose filename attribute identifies the scan to annotate.
+    rects : list of matplotlib.patches.Rectangle
+        Bounding box patches to overlay on the card image.
+    scans_dir : str
+        Path to the directory containing the original scanned card images.
+    annot_scans_dir : str
+        Path to the output directory. Must already contain pdfs/ and jpgs/
+        subdirectories (created by classify_prep).
+
+    Returns
+    -------
+    None
+    """
 # json_data, flag_list, scans_dir_arg, annot_scans_dir, img_list):
     print(f"Annotating card {card.filename}")
     img = Image.open(join(scans_dir, card.filename))
@@ -156,6 +272,28 @@ def annotate_card(card, rects, scans_dir, annot_scans_dir):
 
 
 def classify_prep(id_num, scans_dir, annot_scans_dir, crops_dir, model_path):
+    """
+    Orchestrate the full classification and annotation pipeline for sticky card scans.
+
+    Runs segment classification, builds flag and card data structures from COCO JSON
+    output, matches annotations to classified crops, and produces annotated card images
+    with colour-coded bounding boxes for each insect class of interest.
+
+    Parameters
+    ----------
+    id_num : str
+        Run ID prefix combined with the current datetime to form a unique run ID.
+    scans_dir : str
+        Path to the directory containing original scanned sticky card images.
+    annot_scans_dir : str
+        Path to the directory where annotated outputs (PDFs and JPEGs) will be saved.
+        pdfs/ and jpgs/ subdirectories are created here if they do not exist.
+    crops_dir : str
+        Path to the directory containing flatbug crop images and the
+        coco_instances.json annotation file.
+    model_path : str
+        Path to the pretrained PyTorch model (.pt) used for segment classification.
+    """
     Image.MAX_IMAGE_PIXELS = 933120000
 
     run_id = id_num + datetime.today().strftime("%m-%d-%H-%M")
