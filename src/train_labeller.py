@@ -19,6 +19,35 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 
 def cli_args():
+    """
+    Function to accept command line arguments
+
+    Arguments
+    ---------
+    -i, --id : str
+        Run ID number
+    -s, --source : str
+        Unsplit dataset location
+    -d, --destination : str
+        Location where split dataset should be stored
+    -m, --mode : str
+        Whether to train a model from scratch
+    -p, --pt_path : str
+        Location of pretrained model
+    -l, --split
+        Flag whether to split the data or not
+    -r, --arch : str
+        Model architecture ("resnet", or dinov2 variant 
+        (eg. "dinov2_vitb14"))
+    -a, --size_aware
+        Whether to perform size-aware classification
+
+    Returns
+    -------
+    vars(args) : dict
+        Dictionary with all arguments and flags.
+
+    """
     args_parse = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     args_parse.add_argument("-i", "--id", type=str, dest="id_num", required=True,
                             help="Run ID number")
@@ -41,7 +70,18 @@ def cli_args():
 
 
 def plot_training_history(history, run_id):
-    """Plots the training and validation loss and accuracy."""
+    """
+    Plots the training and validation loss and accuracy.
+
+    Saves plots to output/train directory
+
+    Parameters
+    ----------
+    history : dict
+        Contains past train and validation losses
+    run_id : int
+        Run identification number
+    """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
     # Plot losses
@@ -69,6 +109,29 @@ def plot_training_history(history, run_id):
     plt.savefig(os.path.join("..", "outputs", "train", f"training_history_{run_id}.png"))
 
 def split_data(source_data_dir, destination_data_dir):
+    """
+    Function to create (80|10|10) train, validation, and test splits.
+
+    Parameters
+    ----------
+    source_data_dir : str
+        Path to the unsplit data directory
+    destination_data_dir : str
+        Path to the split data directory
+
+    Returns
+    -------
+    filenames : collections.defaultdict
+        A defaultdict mapping each label (str) to a shuffled list of
+        filenames (list of str) belonging to that label.
+    num_files : int
+        Total number of files found across all labels in source_data_dir.
+
+    Raises
+    ------
+    FileNotFoundError
+        If source_data_dir or destination_data_dir does not exist.
+    """
     filenames = defaultdict(list)
     num_files = 0
     with os.scandir(source_data_dir) as ents:
@@ -114,6 +177,52 @@ def split_data(source_data_dir, destination_data_dir):
     return filenames, num_files
 
 def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, split, arch, size_aware):
+    """
+    Train or fine-tune a SegmentClassifier on image data, then evaluate and save results.
+
+    Optionally splits raw data into train/val/test sets before training. Supports
+    training from scratch ("raw" mode) or fine-tuning from a pretrained checkpoint.
+    After training, saves the model, plots the training history, and outputs a
+    confusion matrix.
+
+    Parameters
+    ----------
+    id_num : str
+        A string prefix used to construct a unique run ID (combined with the
+        current datetime).
+    source_data_dir : str
+        Path to the unsplit source data directory. Only used when split=True.
+        Expected structure:
+            source_data_dir/
+                <label_1>/
+                    file1, file2, ...
+                <label_2>/
+                    ...
+    destination_data_dir : str
+        Path to the directory containing (or to receive) the train/, val/, and
+        test/ subdirectories used for training and evaluation.
+    mode : str
+        Training mode. Use "raw" to train a new model from scratch. Any other
+        value triggers fine-tuning from the checkpoint at model_path.
+    model_path : str
+        Path to a saved PyTorch model (.pt) to load for fine-tuning.
+        Ignored when mode="raw".
+    split : bool
+        If True, calls split_data() to partition source_data_dir into
+        train/val/test splits before training.
+    arch : str
+        Backbone architecture identifier passed to classifier.load_model().
+    size_aware : bool
+        If True, computes per-channel mean and standard deviation of nuclei
+        per bounding box (NPB) from the training set and passes them to
+        SegmentClassifier for size-aware sampling. If False, MEAN_NPB and
+        STD_NPB are set to None.
+
+    Raises
+    ------
+    FileNotFoundError
+        If destination_data_dir or (when mode != "raw") model_path does not exist.
+    """
     Transform = transforms.Compose([
         transforms.ToImage(),  # Convert to tensor, only needed if you had a PIL image
         # transforms.ToDtype(torch.uint8, scale=True),  # optional, most input are already uint8 at this point
