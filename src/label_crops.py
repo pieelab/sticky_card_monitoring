@@ -184,7 +184,22 @@ class OrigResNet50(ResNet):
         return x
     
 class OrigDINOv2(nn.Module):
-    """ Non-size-aware dinov2 feature extractor and classifier."""
+    """ 
+    Non-size-aware dinov2 feature extractor and classifier.
+    
+    Attributes
+    ----------
+    backbone : torch.nn.Module
+        Dinov2 backbone model
+    embed_dim : int
+        Dimensions of backbone output
+    fc : torch.nn.Module
+        Fully connected classification layer of the model:
+            - Linear layer (embed_dim -> 256)
+            - ReLU activation function
+            - Linear layer (256 -> num_classes)
+    """
+
     def __init__(self, num_classes, model_name='dinov2_vitb14'):
         """ 
         Constructor.
@@ -195,18 +210,6 @@ class OrigDINOv2(nn.Module):
             Number of classes
         model_name : str, default='dinov2_vitb14'
             Name of dinov2 model to be used. 
-
-        Attributes
-        ----------
-        backbone : torch.nn.Module
-            Dinov2 backbone model
-        embed_dim : int
-            Dimensions of backbone output
-        fc : torch.nn.Module
-            Fully connected classification layer of the model:
-                - Linear layer (embed_dim -> 256)
-                - ReLU activation function
-                - Linear layer (256 -> num_classes)
         """
         super().__init__()
         self.backbone = torch.hub.load('facebookresearch/dinov2', model_name)
@@ -240,7 +243,21 @@ class OrigDINOv2(nn.Module):
         return self.fc(x)
     
 class SizeDINOv2(nn.Module):
-    """ Size-aware dinov2 feature extractor and classifier."""
+    """ 
+    Size-aware dinov2 feature extractor and classifier.
+
+    Attributes
+    ----------
+    backbone : torch.nn.Module
+        Dinov2 backbone model
+    embed_dim : int
+        Dimensions of backbone output
+    fc : torch.nn.Module
+        Fully connected classification layer of the model:
+            - Linear layer (embed_dim + 1 -> 256)
+            - ReLU activation function
+            - Linear layer (256 -> num_classes)
+    """
     def __init__(self, num_classes, model_name='dinov2_vitb14'):
         """ 
         Constructor.
@@ -251,18 +268,6 @@ class SizeDINOv2(nn.Module):
             Number of classes
         model_name : str, default='dinov2_vitb14'
             Name of dinov2 model to be used. 
-
-        Attributes
-        ----------
-        backbone : torch.nn.Module
-            Dinov2 backbone model
-        embed_dim : int
-            Dimensions of backbone output
-        fc : torch.nn.Module
-            Fully connected classification layer of the model:
-                - Linear layer (embed_dim + 1 -> 256)
-                - ReLU activation function
-                - Linear layer (256 -> num_classes)
         """
         super().__init__()
         self.backbone = torch.hub.load('facebookresearch/dinov2', model_name)
@@ -413,6 +418,17 @@ def my_resnet50(*, original=True, weights=None, progress=True, **kwargs) -> Size
     return my_resnet(Bottleneck, [3, 4, 6, 3], weights, progress, original=original, **kwargs)
 
 class ImageFolderWithPaths(ImageFolder):
+    """
+    Class to handle retrieval of images from the image folder.
+
+    Attributes
+    ----------
+    mean_npb : int
+        Mean number of pixels before resizing.
+    std_npb : int
+        Standard deviation of the number of pixels before
+        resizing.
+    """
     def __init__(self, mean_npb, std_npb, root: str, transform=None, target_transform=None, is_valid_file=None):
         """
         Constructor.
@@ -432,15 +448,8 @@ class ImageFolderWithPaths(ImageFolder):
             Sequence of transformations on the target.
         is_valid_file : bool
             Boolean to check if file is valid.
-
-        Attributes
-        ----------
-        mean_npb : int
-            Mean number of pixels before resizing.
-        std_npb : int
-            Standard deviation of the number of pixels before
-            resizing.
         """
+
         super().__init__(
             root,
             transform=transform,
@@ -493,7 +502,25 @@ class ImageFolderWithPaths(ImageFolder):
 
 
 class EarlyStopping:
-    """ A class to implement early stopping."""
+    """ 
+    A class to implement early stopping.
+
+    Attributes
+    ----------
+    patience : int
+        Stores the patience parameter.
+    delta : int
+        Stores the delta parameter.
+    path : str
+        Stores the checkpoint file path.
+    counter : int
+        Tracks the number of epochs since the last improvement.
+    best_score : float or None
+        The best validation loss observed so far. None until the
+        first epoch is evaluated.
+    early_stop : bool
+        Flag that is set to True when training should be stopped.
+    """
     def __init__(self, patience=1, delta=0, path='checkpoint.pt'):
         """
         Constructor.
@@ -507,23 +534,8 @@ class EarlyStopping:
             Minimum change in validation loss to qualify as an improvement.
         path : str, default='checkpoint.pt'
             File path for saving the model checkpoint
-
-        Attributes
-        ----------
-        patience : int
-            Stores the patience parameter.
-        delta : int
-            Stores the delta parameter.
-        path : str
-            Stores the checkpoint file path.
-        counter : int
-            Tracks the number of epochs since the last improvement.
-        best_score : float or None
-            The best validation loss observed so far. None until the
-            first epoch is evaluated.
-        early_stop : bool
-            Flag that is set to True when training should be stopped.
         """
+
         self.patience = patience
         self.delta = delta
         self.path = path
@@ -571,15 +583,66 @@ class EarlyStopping:
         torch.save(model.state_dict(), self.path)
 
 class ClassifierTest(Dataset):
+    """
+    A PyTorch Dataset for loading unlabelled images for classifier inference.
+
+    Scans a directory for valid image files (.png, .jpg, .jpeg) and provides
+    them as transformed tensors alongside their filenames.
+
+    Attributes
+    ----------
+    dir : str
+        Path to the directory containing the images.
+    transform : callable or None
+        Optional transform to apply to each image tensor.
+    images : list of str
+        Sorted list of valid image filenames found in self.dir
+    """
     def __init__(self, dir, transform=None):
+        """
+        Constructor.
+
+        Parameters
+        ----------
+        dir : str
+            Path to the directory containing the images to load.
+        transform : callable or None, default=None
+            Optional transform (eg. torchvision.transforms.Compose) to
+            be applied to each image tensor before it is returned.
+        """
         self.dir = dir
         self.transform = transform
         self.images = [f for f in os.listdir(self.dir) if (os.path.isfile(os.path.join(self.dir,f)) & f.lower().endswith(('.png', '.jpg', '.jpeg')))]
 
     def __len__(self):
+        """
+        Returns the total number of images in the dataset.
+        """
         return len(self.images)
 
     def __getitem__(self, index):
+        """
+        Loads, converts, and returns the image at the given index.
+
+        Opens the image at self.images[index] as an RGB PIL image, converts
+        it to a uint8 tensor via pil_to_tensor, normalizes it to float32 in
+        [0.0, 1.0] via convert_image_dtype, and applies self.transform.
+
+        Parameters
+        ----------
+        index : int
+            Index of the image to retrieve from self.images.
+
+        Returns
+        -------
+        tuple
+            A 2-tuple of:
+            - dict : {"img": torch.Tensor}
+                A dictionary with key "img" containing the transformed
+                float32 image tensor shape (C, H, W).
+            - str
+                The filename of the loaded image
+        """
         #print(os.path.join(self.dir, self.images[idx]))
         img = Image.open(os.path.join(self.dir, self.images[index])).convert('RGB')
         img = F.pil_to_tensor(img)
@@ -587,21 +650,102 @@ class ClassifierTest(Dataset):
         return {"img": self.transform(img)}, self.images[index]
 
 class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assign module before Module.__init__() call" error
+    """
+    A classifier for training, validating, and running inference on image segments.
 
+    Manages the full ML pipeline: data loading with optional weighted sampling,
+    model loading (ResNet50 or DINOv2 backbones), per-epoch training and
+    validation with per-class metrics, early stopping, and CSV logging.
+
+    Attributes
+    ----------
+    id : str or int
+        Unique identifier for this run, used in log filenames.
+    data_dir : str
+        Path to the dataset directory.
+    num_classes : int
+        Number of target classes.
+    device : torch.device
+        Device to run training on (CPU or CUDA).
+    mean_npb : float or None
+        Mean number of pixels before resizing. Used as a proxy for
+        object size in the size-aware models. 
+    std_npb : float or None
+        Standard deviation of number of pixels before resizing. Used 
+        alongside mean_npb.
+    optim : int
+        Optimizer selection. 1 = Adam, 2 = SGD.
+    sample : bool
+        Whether to use WeightedRandomSampler to handle class imbalance.
+    loss_weights : bool
+        Whether to pass inverse-frequency class weights to the loss function.
+    batch_size : int
+        Number of samples per forward/backward pass.
+    num_workers : int
+        Number of DataLoader worker processes.
+    lr : float
+        Learning rate for the optimizer.
+    stop_early : bool
+        Whether to enable early stopping based on validation loss.
+    freeze_backbone : bool
+        Whether to freeze all backbone parameters except the classification head.
+    Transform : callable or None
+        Data augmentation transform applied to the training set.
+    val_loss : float or list
+        Most recent mean validation loss. Initialized as a zero list.
+    val_predictions : list
+        Accumulated validation predictions across the current epoch.
+    val_targets : list
+        Accumulated validation ground-truth labels across the current epoch.
+    prev_val_acc : float
+        Validation accuracy from the previous epoch. Initialized to 0.
+    train_classes : list or None
+        Flat list of class labels for all training samples. Set by load_data().
+    """
     def __init__(self, id, data_dir, num_classes, device, mean_npb = None, std_npb = None, optim=1, Transform=None, sample=True, loss_weights=True,
                  batch_size=8, num_workers=0, lr=1e-4, stop_early=True, freeze_backbone=True):
-        #############################################################################################################
-        # data_dir: directory with images in subfolders, subfolders name are categories
-        # num_classes: how many categories
-        # Transform: data augmentations
-        # sample: if the dataset is imbalanced, set to true and RandomWeightedSampler will be used
-        # loss_weights: if the dataset is imbalanced, set to true and weight parameter will be passed to loss function
-        # batch_size = number of samples used in 1 forward + backward pass thru network
-        # num_workers = numer of processes putting data into RAM for processing
-        # lr = learning rate
-        # stop_early = whether to stop fitting once metric stops improving
-        # freeze_backbone: if using pretrained architecture freeze all but the classification layer
-        ###############################################################################################################
+        """
+        Constructor.
+
+        Parameters
+        ----------
+        id : str or int
+            Unique run identifier, used to name CSV log files.
+        data_dir : str
+            Root directory of the dataset. For training, expects 'train/' and
+            'val/' subdirectories with one subfolder per class.
+        num_classes : int
+            Number of output classes for the classification head.
+        device : torch.device
+            Device to run model training and inference on.
+        mean_npb : float or None, default=None
+            Mean number of pixels before resizing. When provided, it is 
+            concatenated as an extra scalar feature in the classification head.
+        std_npb : float or None, default=None
+            Standard deviation of number of pixels before resizing.
+        optim : int, default=1
+            Optimizer choice. 1 for Adam, 2 for SGD.
+        Transform : callable or None, default=None
+            Torchvision transform pipeline applied to the training set. The
+            validation set always uses a fixed resize + normalize transform.
+        sample : bool, default=True
+            If True, uses WeightedRandomSampler on the training set to
+            compensate for class imbalance.
+        loss_weights : bool, default=True
+            If True, passes inverse-frequency class weights to CrossEntropyLoss.
+        batch_size : int, default=8
+            Number of samples per training batch.
+        num_workers : int, default=0
+            Number of subprocesses for DataLoader data loading.
+        lr : float, default=1e-4
+            Initial learning rate for the optimizer.
+        stop_early : bool, default=True
+            If True, enables EarlyStopping based on validation loss.
+        freeze_backbone : bool, default=True
+            If True, freezes all backbone parameters at the start of training,
+            only allowing the classification head to update. Backbone is
+            unfrozen after `unfreeze_after` epochs in fit().
+        """
         self.id = id
         self.data_dir = data_dir  # 'data'
         self.num_classes = num_classes  # 4
@@ -625,10 +769,25 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         self.train_classes = None
 
     def load_data(self):
-        '''
-        # separate function for applying transforms
-        # CSV of image filenames, randomly split based on class dist
-        '''
+        """
+        Loads and returns training and validation DataLoaders.
+
+        Constructs ImageFolderWithPaths datasets from the 'train/' and 'val/'
+        subdirectories of self.data_dir. Applies self.Transform to the training
+        set and a fixed resize + normalize pipeline to the validation set.
+
+        If self.sample is True, computes inverse-frequency class weights and
+        uses WeightedRandomSampler so each batch is approximately class-balanced.
+        Sets self.class_weights, self.sample_weights, and self.class_mappings
+        as side effects.
+
+        Returns
+        -------
+        train_loader : torch.utils.data.DataLoader
+            DataLoader for the training set, with weighted or shuffled sampling.
+        val_loader : torch.utils.data.DataLoader
+            DataLoader for the validation set, shuffled.
+        """
         train_set = ImageFolderWithPaths(root = os.path.join(self.data_dir, "train"), mean_npb = self.mean_npb, std_npb = self.std_npb,
                                          transform=self.Transform)
         val_set = ImageFolderWithPaths(root = os.path.join(self.data_dir, "val"), mean_npb = self.mean_npb, std_npb = self.std_npb,
@@ -668,6 +827,17 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         return train_loader, val_loader
 
     def load_inference_data(self):
+        """
+        Loads and returns a DataLoader for unlabelled inference images.
+
+        Constructs a ClassifierTest dataset from self.data_dir, applying a
+        fixed resize + normalise transform. No labels are expected or returned.
+
+        Returns
+        -------
+        test_loader : torch.utils.data.DataLoader
+            DataLoader wrapping the inference dataset.
+        """
         test_set = ClassifierTest(dir=self.data_dir,transform=transforms.Compose([
                                            transforms.ToImage(),
                                            transforms.Resize(size=(224, 224), antialias=True),
@@ -679,6 +849,36 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         return test_loader
 
     def load_model(self, pretrained = None, backbone='resnet50'):
+        """
+        Builds or loads the model, optimizer, scheduler, and loss functions.
+
+        If `pretrained` is provided it is used directly. Otherwise, a new model
+        is constructed from the specified backbone. The classification head is
+        always replaced with a two-layer MLP matching self.num_classes outputs.
+
+        If self.freeze_backbone is True, all parameters are frozen except the
+        classification head. For ResNet50, conv1, bn1, layer1, and layer2 are
+        additionally frozen regardless of the freeze flag.
+
+        Initializes CSV log files for per-epoch metrics (run_notes) and
+        per-sample validation predictions (val_notes), then moves the model to
+        self.device and sets up the optimizer, StepLR scheduler, and loss
+        criteria.
+
+        Parameters
+        ----------
+        pretrained : torch.nn.Module or None, default=None
+            A pre-built model to use directly. If None, a new model is
+            constructed from `backbone`.
+        backbone : str, default='resnet50'
+            Backbone architecture. Supported values: 'resnet50', or any
+            DINOv2 variant string (e.g. 'dinov2_vitb14').
+
+        Raises
+        ------
+        ValueError
+            If `backbone` is not 'resnet50' and does not start with 'dinov2'.
+        """
         self.backbone_type = backbone
 
         if pretrained is not None:
@@ -754,6 +954,19 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
             self.criterion = nn.CrossEntropyLoss(reduction = 'none')
 
     def load_inference_model(self, backbone='resnet50'):
+        """
+        Builds a model for inference only, without optimizer or loss setup.
+
+        Constructs the same backbone architecture as load_model() but skips
+        freezing, logging, optimizer, scheduler, and loss initialization.
+        Moves the model to self.device.
+
+        Parameters
+        ----------
+        backbone : str, default='resnet50'
+            Backbone architecture. Supported values: 'resnet50', or any
+            DINOv2 variant string.
+        """
         if backbone == 'resnet50':
             self.model = my_resnet50(original=(self.mean_npb is None))
             self.model.fc = nn.Sequential(
@@ -771,6 +984,35 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         self.model = self.model.to(self.device)
 
     def fit_one_epoch(self, train_loader, epoch, num_epochs, start_timestamp):
+        """
+        Runs one full training epoch over the training DataLoader.
+
+        Sets the model to train mode, iterates over all batches, computes
+        loss and accuracy globally and per class, steps the optimizer and
+        scheduler, and appends per-epoch metrics to the run_notes CSV.
+
+        Parameters
+        ----------
+        train_loader : torch.utils.data.DataLoader
+            DataLoader for the training set.
+        epoch : int
+            Current epoch index (0-based).
+        num_epochs : int
+            Total number of epochs, used for progress printing.
+        start_timestamp : datetime
+            Timestamp recorded at the start of fit(), used to print elapsed time.
+
+        Returns
+        -------
+        dict with keys:
+            'train_loss' : torch.Tensor
+                Mean loss across all batches for this epoch.
+            'train_acc' : torch.Tensor
+                Mean accuracy across all batches for this epoch.
+            'train_maxes' : list of list of list
+                Per-class softmax confidence averages, indexed as
+                [true_class][predicted_class][epoch_avg].
+        """
         epoch_train_losses = list()
         epoch_train_accs = list()
         epoch_train_losses_perclass = [list() for x in range(self.num_classes)]
@@ -856,6 +1098,30 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         }
 
     def val_one_epoch(self, val_loader, epoch):
+        """
+        Runs one full validation epoch over the validation DataLoader.
+
+        Sets the model to eval mode, disables gradient computation, and
+        iterates over all batches to compute loss and accuracy globally and
+        per class. Writes per-sample predictions to val_notes CSV and
+        per-epoch metrics to run_notes CSV. Updates self.val_loss,
+        self.val_predictions, and self.val_targets as side effects.
+
+        Parameters
+        ----------
+        val_loader : torch.utils.data.DataLoader
+            DataLoader for the validation set.
+        epoch : int
+            Current epoch index (0-based), used for CSV logging.
+
+        Returns
+        -------
+        dict with keys:
+            'val_loss' : torch.Tensor
+                Mean validation loss across all batches.
+            'val_acc' : torch.Tensor
+                Mean validation accuracy across all batches.
+        """
         epoch_val_losses = list()
         epoch_val_accs = list()
         #val_loss = list()
@@ -932,6 +1198,42 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
             }
 
     def fit(self, train_loader, val_loader, num_epochs=10, unfreeze_after=5, checkpoint_dir='checkpoint.pt'):
+        """
+        Runs the full training loop for num_epochs epochs.
+
+        Calls fit_one_epoch() and val_one_epoch() on each epoch. If
+        self.freeze_backbone is True, unfreezes all model parameters after
+        `unfreeze_after` epochs. If self.stop_early is True, monitors
+        validation loss via EarlyStopping and halts if it stops improving.
+
+        Parameters
+        ----------
+        train_loader : torch.utils.data.DataLoader
+            DataLoader for the training set.
+        val_loader : torch.utils.data.DataLoader
+            DataLoader for the validation set.
+        num_epochs : int, default=10
+            Maximum number of epochs to train for.
+        unfreeze_after : int, default=5
+            Epoch index at which all backbone parameters are unfrozen,
+            if self.freeze_backbone is True.
+        checkpoint_dir : str, default='checkpoint.pt'
+            File path passed to EarlyStopping for saving the best checkpoint.
+
+        Returns
+        -------
+        dict with keys:
+            'train_losses' : list of torch.Tensor
+                Mean training loss per epoch.
+            'train_acc' : list of torch.Tensor
+                Mean training accuracy per epoch.
+            'train_maxes' : list
+                Per-class softmax confidence averages per epoch.
+            'val_losses' : list of torch.Tensor
+                Mean validation loss per epoch.
+            'val_acc' : list of torch.Tensor
+                Mean validation accuracy per epoch.
+        """
         train_losses, train_accuracies, val_losses, val_accuracies = [], [], [], []
         maxes = [[list() for x in range(self.num_classes)] for y in range(self.num_classes)]
         empty_list = [[[] for _ in range(self.num_classes)] for _ in range(self.num_classes)]
@@ -966,16 +1268,47 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
             'val_losses': val_losses,
             'val_acc': val_accuracies,
         }
-
+    
     def compute_confusion_matrix(preds, y):
+        """
+        Computes a confusion matrix from raw logits and ground-truth labels.
+
+        Applies sigmoid activation and rounds predictions to the nearest
+        integer before computing the matrix.
+
+        Parameters
+        ----------
+        preds : torch.Tensor
+            Raw model logits (pre-sigmoid).
+        y : array-like
+            Ground-truth integer class labels.
+        """
         # round predictions to the closest integer
         rounded_preds = torch.round(torch.sigmoid(preds))
         return confusion_matrix(y, rounded_preds)
 
     def head_dict(d, limit):
+        """
+        Prints the first `limit` elements of each value in a dictionary.
+
+        Parameters
+        ----------
+        d : dict
+            Dictionary whose values are indexable sequences.
+        limit : int
+            Number of elements to print from the start of each value.
+        """
         for element in d:
             print(d[element][0:limit])
 
     def dim_dict(d):
+        """
+        Prints the key and length of each value in a dictionary.
+
+        Parameters
+        ----------
+        d : dict
+            Dictionary whose values support len().
+        """
         for element in d:
             print(element, ": ", len(d[element]))
