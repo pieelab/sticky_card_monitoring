@@ -493,7 +493,37 @@ class ImageFolderWithPaths(ImageFolder):
 
 
 class EarlyStopping:
+    """ A class to implement early stopping."""
     def __init__(self, patience=1, delta=0, path='checkpoint.pt'):
+        """
+        Constructor.
+
+        Parameters
+        ----------
+        patience : int, default=1
+            Number of epochs to wait after last improvement in
+            validation loss before stopping training.
+        delta : int, default=0
+            Minimum change in validation loss to qualify as an improvement.
+        path : str, default='checkpoint.pt'
+            File path for saving the model checkpoint
+
+        Attributes
+        ----------
+        patience : int
+            Stores the patience parameter.
+        delta : int
+            Stores the delta parameter.
+        path : str
+            Stores the checkpoint file path.
+        counter : int
+            Tracks the number of epochs since the last improvement.
+        best_score : float or None
+            The best validation loss observed so far. None until the
+            first epoch is evaluated.
+        early_stop : bool
+            Flag that is set to True when training should be stopped.
+        """
         self.patience = patience
         self.delta = delta
         self.path = path
@@ -502,6 +532,26 @@ class EarlyStopping:
         self.early_stop = False
 
     def __call__(self, val_loss, model):
+        """
+        Sets early stopping to true if the current loss is greater than 
+        the best score and counter is greater or equal to patience. 
+        
+        Runs when class instance to be called like a function. Checks if
+        best score exists, if not best_score is set to the current val_loss, 
+        and a checkpoint of the model is saved. If best score already exists 
+        it will only set early stopping to true if val_loss is greater than 
+        best_score AND counter is greater than or equal to patience. Otherwise, 
+        best_score is set to equal the current val_loss, saves a checkpoint of 
+        the model, and sets the counter to 0.
+
+        Parameters
+        ----------
+        val_loss : float
+            The validation loss for the current epoch.
+        model : torch.nn.Module
+            The model being trained, passed to save_checkpoint when
+            an improvement is observed.
+        """
         if self.best_score is None:
             self.best_score = val_loss
             self.save_checkpoint(model)
@@ -515,6 +565,9 @@ class EarlyStopping:
             self.counter = 0
 
     def save_checkpoint(self, model):
+        """
+        Saves model state.
+        """
         torch.save(model.state_dict(), self.path)
 
 class ClassifierTest(Dataset):
