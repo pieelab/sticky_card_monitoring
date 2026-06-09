@@ -41,6 +41,8 @@ def cli_args():
         (eg. "dinov2_vitb14"))
     -a, --size_aware
         Whether to perform size-aware classification
+    -e, --epochs
+        Number of epochs to train over
 
     Returns
     -------
