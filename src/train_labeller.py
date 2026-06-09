@@ -281,7 +281,7 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         except:
             print("Could not save")
 
-        plot_training_history(history, run_id=run_id)
+        #plot_training_history(history, run_id=run_id)
 
         cm = confusion_matrix(val_targets_labels, val_preds_labels)
         ConfusionMatrixDisplay(cm, display_labels=list(val_loader.dataset.class_to_idx.keys())).plot()
