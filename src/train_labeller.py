@@ -67,7 +67,7 @@ def cli_args():
                             help="Model architecture (resnet, bioclip)")
     args_parse.add_argument("-a", "--size_aware", dest="size_aware", action='store_true',
                             help="Whether to perform size-aware classification")
-    args_parse.add_argument("-e", "--epochs", dest="epochs", required=True,
+    args_parse.add_argument("-e", "--epochs", type=int, dest="epochs", required=True,
                             help="Number of epochs")
     args = args_parse.parse_args()
     return vars(args)
