@@ -281,11 +281,13 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         except:
             print("Could not save")
 
-        #plot_training_history(history, run_id=run_id)
 
-        cm = confusion_matrix(val_targets_labels, val_preds_labels)
-        ConfusionMatrixDisplay(cm, display_labels=list(val_loader.dataset.class_to_idx.keys())).plot()
-        plt.savefig(os.path.join("..", "outputs", "train", f"confusion_matrix_{run_id}.png"))
+        # UNCOMMENT LATER
+        #plot_training_history(history, run_id=run_id)
+        # cm = confusion_matrix(val_targets_labels, val_preds_labels)
+        # ConfusionMatrixDisplay(cm, display_labels=list(val_loader.dataset.class_to_idx.keys())).plot()
+        # plt.savefig(os.path.join("outputs", "train", f"confusion_matrix_{run_id}.png"))
+
         # current_datetime = datetime.datetime.now()
         print("stop")
     else:
