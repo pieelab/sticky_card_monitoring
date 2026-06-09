@@ -65,6 +65,8 @@ def cli_args():
                             help="Model architecture (resnet, bioclip)")
     args_parse.add_argument("-a", "--size_aware", dest="size_aware", action='store_true',
                             help="Whether to perform size-aware classification")
+    args_parse.add_argument("-e", "--epochs", dest="epochs", required=True,
+                            help="Number of epochs")
     args = args_parse.parse_args()
     return vars(args)
 
@@ -176,7 +178,7 @@ def split_data(source_data_dir, destination_data_dir):
     test_files.close()
     return filenames, num_files
 
-def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, split, arch, size_aware):
+def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, split, arch, size_aware, epochs):
     """
     Train or fine-tune a SegmentClassifier on image data, then evaluate and save results.
 
@@ -264,7 +266,7 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         train_loader, val_loader = classifier.load_data()
         classifier.load_model(backbone=arch)
         print(f"Fitting SegmentClassifier")
-        history = classifier.fit(num_epochs=100, unfreeze_after=10, train_loader=train_loader, val_loader=val_loader)
+        history = classifier.fit(num_epochs=epochs, unfreeze_after=10, train_loader=train_loader, val_loader=val_loader)
         val_targets_labels = []
         val_preds_labels = []
         idx2class = {v: k for k, v in val_loader.dataset.class_to_idx.items()}
