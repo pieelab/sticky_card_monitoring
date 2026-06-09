@@ -1,6 +1,7 @@
 name: sticky-card-classifier
 channels:
  - pytorch
+ - nvidia
  - conda-forge
  - defaults
 dependencies:
