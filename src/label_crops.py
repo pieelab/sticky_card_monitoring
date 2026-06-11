@@ -919,7 +919,7 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
                     for param in layer.parameters():
                         param.requires_grad = False
 
-        with open(f"C:\\Users\\ALANalysis\\flat-bug\\src\\A_rubi_training\\run_notes_{self.id}.csv", 'a') as rn:
+        with open(f"C:\\Users\\ALANalysis\\sticky_card_monitoring\\outputs\\train\\run_notes_{self.id}.csv", 'a') as rn:
             #rn.write('ID, Epoch, Training_loss, validation_loss, validation_accuracy' + '\n')
             rn.write('ID, Epoch,')
             cols = ['Training_loss_', 'Training_acc_', 'Validation_loss_', 'Validation_acc_']
@@ -929,7 +929,7 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
                 rn.write(col + 'mean' + ',')
             rn.write('\n')
 
-        with open(f"C:\\Users\\ALANalysis\\flat-bug\\src\\A_rubi_training\\val_notes_{self.id}.csv", 'a') as vn:
+        with open(f"C:\\Users\\ALANalysis\\sticky_card_monitoring\\outputs\\train\\val_notes_{self.id}.csv", 'a') as vn:
             vn.write('ID, Epoch, Class, Prediction, Filename' + '\n')
 
         self.model = self.model.to(self.device)
