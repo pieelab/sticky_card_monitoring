@@ -110,7 +110,7 @@ def plot_training_history(history, run_id):
     ax2.grid(True)
 
     plt.tight_layout()
-    plt.savefig(os.path.join("..", "outputs", "train", f"training_history_{run_id}.png"))
+    plt.savefig(os.path.join("outputs", "train", f"training_history_{run_id}.png"))
 
 def split_data(source_data_dir, destination_data_dir):
     """
