@@ -43,6 +43,8 @@ def cli_args():
         Whether to perform size-aware classification
     -e, --epochs
         Number of epochs to train over
+    -t, --learning_rate
+        Learning rate while training the model
 
     Returns
     -------
@@ -69,6 +71,8 @@ def cli_args():
                             help="Whether to perform size-aware classification")
     args_parse.add_argument("-e", "--epochs", type=int, dest="epochs", required=True,
                             help="Number of epochs")
+    args_parse.add_argument("-t", "--learning_rate", type=float, dest="learning_rate", required=True,
+                            help="Learning Rate")
     args = args_parse.parse_args()
     return vars(args)
 
@@ -180,7 +184,7 @@ def split_data(source_data_dir, destination_data_dir):
     test_files.close()
     return filenames, num_files
 
-def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, split, arch, size_aware, epochs):
+def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, split, arch, size_aware, epochs, learning_rate):
     """
     Train or fine-tune a SegmentClassifier on image data, then evaluate and save results.
 
@@ -261,7 +265,7 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
     if mode == "raw":
         classifier = SegmentClassifier(id=run_id, data_dir=destination_data_dir, num_classes=5,
                                        device=device, optim=2,
-                                       lr=1e-2, batch_size=32, num_workers=4, Transform=Transform, sample=True,
+                                       lr=learning_rate, batch_size=32, num_workers=4, Transform=Transform, sample=True,
                                        loss_weights=True, mean_npb=MEAN_NPB, std_npb=STD_NPB)
         print(f"Loading data")
 

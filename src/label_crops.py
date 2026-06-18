@@ -1083,7 +1083,7 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         # with open("C:\\Users\\ALANalysis\\flat-bug\\src\\A_rubi_training\\run_notes_pc.csv", 'a', newline = '') as rn:
         #     wr = csv.writer(rn)
         #     wr.writerow([self.id] + [epoch] + train_loss)
-        with open(f"C:\\Users\\ALANalysis\\flat-bug\\src\\A_rubi_training\\run_notes_{self.id}.csv", 'a', newline='') as rn:
+        with open(f"C:\\Users\\ALANalysis\\sticky_card_monitoring\\outputs\\train\\run_notes_{self.id}.csv", 'a', newline='') as rn:
             rn.write(f'{self.id},{epoch},')
             for i in range(len(epoch_train_losses_perclass)):
                 rn.write(f'{epoch_train_losses_perclass[i]},')
@@ -1157,7 +1157,7 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
                     correct_per_class[labels[i].item()] += (labels[i] == predictions[i]).item()
                     val_targets[int(labels[i])] += 1
 
-                with open(f"C:\\Users\\ALANalysis\\flat-bug\\src\\A_rubi_training\\val_notes_{self.id}.csv", 'a') as vn:
+                with open(f"C:\\Users\\ALANalysis\\sticky_card_monitoring\\outputs\\train\\val_notes_{self.id}.csv", 'a') as vn:
                     for i in range(len(inputs["path"])):
                         vn.write(f'{self.id},{epoch},{labels[i]},{predictions[i]},{inputs["path"][i]}\n')
                         self.val_targets.append(labels[i].cpu().numpy())
@@ -1183,7 +1183,7 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
             print(f'Validation accuracy: {val_acc:.2f}')
             print(f'Class distribution: {val_targets}')
             print(f'Correct: {correct_per_class}')
-            with open(f"C:\\Users\\ALANalysis\\flat-bug\\src\\A_rubi_training\\run_notes_{self.id}.csv", 'a') as rn:
+            with open(f"C:\\Users\\ALANalysis\\sticky_card_monitoring\\outputs\\train\\run_notes_{self.id}.csv", 'a') as rn:
                 #rn.write(f'{self.val_loss},{val_acc},\n')
                 for i in range(len(epoch_val_losses_perclass)):
                     rn.write(f'{epoch_val_losses_perclass[i]},')
