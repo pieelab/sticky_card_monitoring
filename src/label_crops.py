@@ -953,6 +953,54 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         else:
             self.criterion = nn.CrossEntropyLoss(reduction = 'none')
 
+    def unfreeze_backbone_gradually(self, epoch, unfreeze_after, 
+                                num_backbone_blocks=12,
+                                max_blocks_to_unfreeze=6):
+        """
+        Progressively unfreezes DINOv2 transformer blocks from the last block
+        backwards, starting at unfreeze_after and adding one block per epoch,
+        up to max_blocks_to_unfreeze blocks total.
+
+        Parameters
+        ----------
+        epoch : int
+            Current epoch.
+        unfreeze_after : int
+            Epoch at which unfreezing begins.
+        num_backbone_blocks : int, default=12
+            Total number of transformer blocks in the backbone.
+            vitb14 = 12, vitl14 = 24.
+        max_blocks_to_unfreeze : int, default=6
+            Maximum number of blocks to unfreeze, counted from the last
+            block backwards. Set to num_backbone_blocks to allow full
+            unfreezing.
+        """
+        if not self.backbone_type.startswith('dinov2'):
+            return
+
+        epochs_since_unfreeze = epoch - unfreeze_after
+        if epochs_since_unfreeze < 0:
+            return
+
+        blocks_to_unfreeze = min(epochs_since_unfreeze + 1, max_blocks_to_unfreeze)
+        first_block_to_unfreeze = num_backbone_blocks - blocks_to_unfreeze
+
+        print(f'Unfreezing backbone blocks {first_block_to_unfreeze} to {num_backbone_blocks - 1} '
+            f'({blocks_to_unfreeze}/{num_backbone_blocks} blocks unfrozen)')
+
+        for i, block in enumerate(self.model.backbone.blocks):
+            should_unfreeze = i >= first_block_to_unfreeze
+            for param in block.parameters():
+                param.requires_grad = should_unfreeze
+
+        for param in self.model.backbone.norm.parameters():
+            param.requires_grad = True
+
+        if epochs_since_unfreeze == 0:
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = self.lr * 0.1
+            print(f'LR reduced to {self.lr * 0.1:.2e} for backbone unfreezing')
+
     def load_inference_model(self, backbone='resnet50'):
         """
         Builds a model for inference only, without optimizer or loss setup.
@@ -1243,9 +1291,17 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         start_timestamp = datetime.today()
         for epoch in range(num_epochs):
             if self.freeze_backbone:
-                if epoch == unfreeze_after:
-                    for param in self.model.parameters():
-                        param.requires_grad = True
+                if self.backbone_type.startswith('dinov2'):
+                    self.unfreeze_backbone_gradually(
+                        epoch,
+                        unfreeze_after,
+                        num_backbone_blocks=12,
+                        max_blocks_to_unfreeze=6
+                    )
+                else:
+                    if epoch == unfreeze_after:
+                        for param in self.model.parameters():
+                            param.requires_grad = True
             train_metrics = self.fit_one_epoch(train_loader, epoch, num_epochs, start_timestamp)
             train_losses.append(train_metrics["train_loss"])
             train_accuracies.append(train_metrics["train_acc"])

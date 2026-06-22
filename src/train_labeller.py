@@ -297,7 +297,7 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
     else:
         classifier = SegmentClassifier(id=run_id, data_dir=destination_data_dir, num_classes=5,
                                        device=device, optim=2,
-                                       lr=1e-2, batch_size=32, num_workers=4, Transform=Transform, sample=True,
+                                       lr=learning_rate, batch_size=32, num_workers=4, Transform=Transform, sample=True,
                                        loss_weights=True, mean_npb=MEAN_NPB, std_npb=STD_NPB)
         pretrained = torch.load(model_path)
         train_loader, val_loader = classifier.load_data()
