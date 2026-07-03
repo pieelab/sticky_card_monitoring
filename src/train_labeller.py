@@ -41,6 +41,8 @@ def cli_args():
         (eg. "dinov2_vitb14"))
     -a, --size_aware
         Whether to perform size-aware classification
+    -n, --num_classes
+        Number of classes to classify
     -e, --epochs
         Number of epochs to train over
     -t, --learning_rate
@@ -65,10 +67,12 @@ def cli_args():
                             help="Location of pretrained model")
     args_parse.add_argument("-l", "--split", dest="split", action='store_true',
                             help="Whether to split dataset")
-    args_parse.add_argument("-r", "--arch", type=str, dest="arch",
+    args_parse.add_argument("-r", "--arch", type=str, dest="arch", default="resnet50",
                             help="Model architecture (resnet, bioclip)")
     args_parse.add_argument("-a", "--size_aware", dest="size_aware", action='store_true',
                             help="Whether to perform size-aware classification")
+    args_parse.add_argument("-n", "--num_classes", type=int, dest="num_classes", required=True,
+                            help="Number of classes for this run")
     args_parse.add_argument("-e", "--epochs", type=int, dest="epochs", required=True,
                             help="Number of epochs")
     args_parse.add_argument("-t", "--learning_rate", type=float, dest="learning_rate", required=True,
@@ -77,7 +81,7 @@ def cli_args():
     return vars(args)
 
 
-def plot_training_history(history, run_id):
+def plot_training_history(history, run_id, outputs_train_dir):
     """
     Plots the training and validation loss and accuracy.
 
@@ -114,7 +118,7 @@ def plot_training_history(history, run_id):
     ax2.grid(True)
 
     plt.tight_layout()
-    plt.savefig(os.path.join("outputs", "train", f"training_history_{run_id}.png"))
+    plt.savefig(os.path.join(outputs_train_dir, f"training_history_{run_id}.png"))
 
 def split_data(source_data_dir, destination_data_dir):
     """
@@ -184,7 +188,7 @@ def split_data(source_data_dir, destination_data_dir):
     test_files.close()
     return filenames, num_files
 
-def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, split, arch, size_aware, epochs, learning_rate):
+def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, split, arch, size_aware, num_classes, epochs, learning_rate):
     """
     Train or fine-tune a SegmentClassifier on image data, then evaluate and save results.
 
@@ -260,10 +264,18 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
     print(f"Creating SegmentClassifier")
     run_id = id_num + datetime.today().strftime("%m-%d-%H-%M")
 
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    models_dir = os.path.join(project_root, "models")
+    os.makedirs(models_dir, exist_ok=True)
+    checkpoint_dir = os.path.join(models_dir, f"checkpoint_{run_id}.pt")
+    print(f"Checkpoints will be saved to {checkpoint_dir}")
+
+    outputs_train_dir = os.path.join(project_root, "outputs", "train")
+    os.makedirs(outputs_train_dir, exist_ok=True)
 
     print(f"Loading model")
     if mode == "raw":
-        classifier = SegmentClassifier(id=run_id, data_dir=destination_data_dir, num_classes=5,
+        classifier = SegmentClassifier(id=run_id, data_dir=destination_data_dir, num_classes=num_classes,
                                        device=device, optim=2,
                                        lr=learning_rate, batch_size=32, num_workers=4, Transform=Transform, sample=True,
                                        loss_weights=True, mean_npb=MEAN_NPB, std_npb=STD_NPB)
@@ -272,7 +284,7 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         train_loader, val_loader = classifier.load_data()
         classifier.load_model(backbone=arch)
         print(f"Fitting SegmentClassifier")
-        history = classifier.fit(num_epochs=epochs, unfreeze_after=10, train_loader=train_loader, val_loader=val_loader)
+        history = classifier.fit(num_epochs=epochs, unfreeze_after=10, train_loader=train_loader, val_loader=val_loader, checkpoint_dir=checkpoint_dir)
         val_targets_labels = []
         val_preds_labels = []
         idx2class = {v: k for k, v in val_loader.dataset.class_to_idx.items()}
@@ -281,21 +293,21 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
             val_preds_labels.append(idx2class[pred.max()])
 
         try:
-            torch.save(classifier.model, os.path.join("models", f"SegmentClassifier_{run_id}.pt"))
+            torch.save(classifier.model, os.path.join(models_dir, f"SegmentClassifier_{run_id}.pt"))
         except:
             print("Could not save")
 
 
         # UNCOMMENT LATER
-        # plot_training_history(history, run_id=run_id)
+        # plot_training_history(history, run_id=run_id, outputs_train_dir=outputs_train_dir)
         cm = confusion_matrix(val_targets_labels, val_preds_labels)
         ConfusionMatrixDisplay(cm, display_labels=list(val_loader.dataset.class_to_idx.keys())).plot()
-        plt.savefig(os.path.join("outputs", "train", f"confusion_matrix_{run_id}.png"))
+        plt.savefig(os.path.join(outputs_train_dir, f"confusion_matrix_{run_id}.png"))
 
         # current_datetime = datetime.datetime.now()
         print("stop")
     else:
-        classifier = SegmentClassifier(id=run_id, data_dir=destination_data_dir, num_classes=5,
+        classifier = SegmentClassifier(id=run_id, data_dir=destination_data_dir, num_classes=num_classes,
                                        device=device, optim=2,
                                        lr=learning_rate, batch_size=32, num_workers=4, Transform=Transform, sample=True,
                                        loss_weights=True, mean_npb=MEAN_NPB, std_npb=STD_NPB)
@@ -303,65 +315,8 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         train_loader, val_loader = classifier.load_data()
         classifier.load_model(pretrained, backbone=arch)
         print(f"Fitting pretrained SegmentClassifier")
-        history = classifier.fit(num_epochs=1, unfreeze_after=10, train_loader=train_loader, val_loader=val_loader)
+        history = classifier.fit(num_epochs=1, unfreeze_after=10, train_loader=train_loader, val_loader=val_loader, checkpoint_dir=checkpoint_dir)
         print("Finished")
-    # else:
-    #     test_data_dir = "C:\\Users\\ALANalysis\\flat-bug\\src\\labeller\\data_test_set\\test"
-    #     pretrained = torch.load("C:\\Users\\ALANalysis\\flat-bug\\src\\labeller\\SegmentClassifier_2025_03_27.pt", weights_only=False)
-    #     pretrained.eval()
-    #
-    #     class Classifier_Test(Dataset):
-    #         def __init__(self, dir, transform=None):
-    #             self.dir = dir
-    #             self.transform = transform
-    #             self.images = os.listdir(self.dir)
-    #
-    #         def __len__(self):
-    #             return len(self.images)
-    #
-    #         def __getitem__(self, index):
-    #             # print(os.path.join(self.dir, self.images[idx]))
-    #             img = Image.open(os.path.join(self.dir, self.images[index]))
-    #             return self.transform(img), self.images[index]
-    #
-    #     # check whether val_set results match last epoch or best epoch
-    #     val_set = Classifier_Test(test_data_dir, transform=transforms.Compose([
-    #         transforms.ToImage(),  # Convert to tensor, only needed if you had a PIL image
-    #         transforms.Resize(size=(224, 224), antialias=True),
-    #         transforms.ToDtype(torch.float32, scale=True),  # Normalize expects float input
-    #         transforms.Lambda(lambda x: x[:3])
-    #         # remove alpha channel since the model's dataset is built with ImageFolder which is RGB
-    #     ]))
-    #
-    #     val_loader = DataLoader(val_set, batch_size=32)
-    #
-    #     sub = pd.DataFrame(columns=['category', 'id'])
-    #     id_list = []
-    #     pred_list = []
-    #
-    #     pretrained = pretrained.to(device)
-    #
-    #     with torch.no_grad():
-    #         for (image, image_id) in val_loader:
-    #             image = image.to(device)
-    #
-    #             logits = pretrained(image)
-    #             predicted = list(torch.argmax(logits, 1).cpu().numpy())
-    #
-    #             for id in image_id:
-    #                 id_list.append(id)
-    #
-    #             for prediction in predicted:
-    #                 pred_list.append(prediction.tolist())
-    #
-    #     sub['category'] = pred_list
-    #     sub['id'] = id_list
-    #
-    #     mapping = {0: 'Non-target', 1: 'SWD_male', 2: 'SWD_parasitoid', 3: 'Weevil'}
-    #
-    #     sub['category'] = sub['category'].map(mapping)
-    #     sub = sub.sort_values(by='id')
-    #     sub.to_csv(test_data_dir + "train.csv", index=False)
 
 def main():
     classify(**cli_args())
