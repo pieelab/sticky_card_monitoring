@@ -220,7 +220,7 @@ def classify_segments_hierarchical(stage1_model_path, stage2_model_path, crops_d
 
     del stage2_model
     gc.collect()
-    torch.cude.empty_cache() if torch.cuda.is_available() else None
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
     id_list = []
     category_list = []
@@ -230,9 +230,9 @@ def classify_segments_hierarchical(stage1_model_path, stage2_model_path, crops_d
             final_label = stage2_mappings[stage2_preds[filename]]
         else:
             final_label = stage1_label
-    id_list.append(filename)
-    category_list.append(final_label)
-    shutil.copy(join(crops_dir, filename), join(destination_crops_dir, final_label))
+        id_list.append(filename)
+        category_list.append(final_label)
+        shutil.copy(join(crops_dir, filename), join(destination_crops_dir, final_label))
 
     sub = pd.DataFrame({"id": id_list, "category": category_list})
     sub = sub.sort_values(by="id")
@@ -379,13 +379,15 @@ def annotate_card(card, rects, scans_dir, annot_scans_dir):
     print("Saved annotated image")
 
 
-def classify_prep(id_num, scans_dir, annot_scans_dir, crops_dir, model_path):
+def classify_prep(id_num, scans_dir, annot_scans_dir, crops_dir, stage1_model_path, stage2_model_path):
     """
-    Orchestrate the full classification and annotation pipeline for sticky card scans.
-
-    Runs segment classification, builds flag and card data structures from COCO JSON
-    output, matches annotations to classified crops, and produces annotated card images
-    with colour-coded bounding boxes for each insect class of interest.
+    Orchestrate the full hierarchical classification and annotation pipeline for
+    sticky card scans.
+ 
+    Runs two-stage segment classification (Debris/Arthropod, then subclass),
+    builds flag and card data structures from COCO JSON output, matches
+    annotations to classified crops, and produces annotated card images with
+    colour-coded bounding boxes for each insect class of interest.
 
     Parameters
     ----------
@@ -399,32 +401,41 @@ def classify_prep(id_num, scans_dir, annot_scans_dir, crops_dir, model_path):
     crops_dir : str
         Path to the directory containing flatbug crop images and the
         coco_instances.json annotation file.
-    model_path : str
-        Path to the pretrained PyTorch model (.pt) used for segment classification.
+    stage1_model_path : str
+        Path to the pretrained stage 1 (Debris vs. Arthropod) model (.pt).
+    stage2_model_path : str
+        Path to the pretrained stage 2 (subclass) model (.pt).
+
     """
     Image.MAX_IMAGE_PIXELS = 933120000
 
     run_id = id_num + datetime.today().strftime("%m-%d-%H-%M")
 
-    # these mappings are only applicable to 5-class model, hardcoded for convenience during testing
-    # TODO modify OrigResNet50 and SizeResNet50 classes in label_crops.py to save class mappings as attribute
-    mappings = {0: 'Arthropod', 1: 'Debris', 2: 'SWD_male', 3: 'SWD_parasitoid', 4: 'Small_black_weevil'}
-    # 4-class mappings (from earlier versions):
-    #mappings = {0: 'Other', 1: 'SWD_male', 2: 'SWD_parasitoid', 3: 'Weevil'}
-
+    # TODO modify OrigResNet50 and SizeResNet50 classes in label_crops.py to save class mappings as attribute,
+    # rather than hardcoding here. Order must match ImageFolder's alphabetical class_to_idx
+    # from each stage's training run.
+    stage1_mappings = {0: 'Arthropod', 1: 'Debris'}
+    # Stage 2 is a 4-way classifier: the 3 known subclasses PLUS an
+    # "unidentified arthropod" class for crops that are clearly arthropods
+    # but don't confidently match a known subclass. This is a genuine
+    # output class, not a discard bucket. Order must match the alphabetical
+    # ImageFolder class_to_idx from stage 2 training - confirm against your
+    # actual stage 2 training folder names before relying on this.
+    stage2_mappings = {0: 'SWD_male', 1: 'SWD_parasitoid', 2: 'Small_black_weevil', 3: 'Unidentified_Arthropod'}
+    arthropod_class_name = 'Arthropod'
+ 
     flag_list = defaultdict(list)
-    # SWD_male_list = []
-    # SWD_parasitoid_list = []
-    # Small_black_weevil_list = []
-    destination_dir = classify_segments(model_path, crops_dir, run_id, mappings)
-    #annot_scans_dir = "C:\\Users\\ALANalysis\\flat-bug\\src\\2024_paul_abram_scans_annotated"
+    destination_dir = classify_segments_hierarchical(
+        stage1_model_path, stage2_model_path, crops_dir, run_id,
+        stage1_mappings, stage2_mappings, arthropod_class_name,
+    )
+
     if not os.path.isdir(join(annot_scans_dir, "pdfs")):
         os.mkdir(join(annot_scans_dir, "pdfs"))
     if not os.path.isdir(join(annot_scans_dir, "jpgs")):
         os.mkdir(join(annot_scans_dir, "jpgs"))
     scans_dir = "C:\\Users\\Public\\Documents\\scans\\2024_paul_abram_scans"
     json_dir = os.path.join(crops_dir, "coco_instances.json")
-    #json_dir = "C:\\Users\\ALANalysis\\flat-bug\\src\\2024_paul_abram_crops\\coco_instances.json"
 
     card_set = set()
     img_list = dict()
