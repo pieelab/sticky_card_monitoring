@@ -125,32 +125,54 @@ def run_model_on_loader(model, loader, device):
     return predictions
 
 
-def classify_segments(model_path, crops_dir, run_id, mappings):
+def classify_segments_hierarchical(stage1_model_path, stage2_model_path, crops_dir, run_id, 
+                                   stage1_mappings, stage2_mappings, arthropod_class_name, 
+                                   batch_size=32, num_workers=4):
     """
-    Run inference on segmented crop images and copy them into class-labelled subdirectories.
-
-    Loads a pretrained PyTorch model, runs inference over all crops in crops_dir,
-    and copies each crop into the corresponding class subfolder in a new output
-    directory. Results are also saved to a CSV file.
-
+    Run two-stage hierarchical inference on segmented crop images and copy them
+    into class-labelled subdirectories.
+ 
+    Stage 1 classifies every crop as Debris or Arthropod. Stage 2 then runs only
+    on crops predicted Arthropod, resolving them into a specific subclass. Every
+    crop ends up copied into exactly one final class subfolder: either the
+    Debris folder, or one of the stage 2 subclass folders.
+ 
     Parameters
     ----------
-    model_path : str
-        Path to the saved PyTorch model (.pt) to load for inference.
+    stage1_model_path : str
+        Path to the saved whole-model .pt file for the binary Debris/Arthropod
+        classifier (as saved via torch.save(classifier.model, ...)).
+    stage2_model_path : str
+        Path to the saved whole-model .pt file for the subclass classifier.
     crops_dir : str
         Path to the directory containing crop images to classify.
     run_id : str
-        Unique run identifier passed to SegmentClassifier.
-    mappings : dict
-        Dictionary mapping integer class indices to class label strings.
-        e.g. {0: 'Arthropod', 1: 'Debris', ...}
-
+        Unique run identifier passed to SegmentClassifier for data loading.
+    stage1_mappings : dict
+        Mapping from stage 1 class index to label, e.g.
+        {0: 'Arthropod', 1: 'Debris'}.
+    stage2_mappings : dict
+        Mapping from stage 2 class index to label, e.g.
+        {0: 'SWD_male', 1: 'SWD_parasitoid', 2: 'Small_black_weevil',
+         3: 'Unidentified_Arthropod'}. Stage 2 is a 4-way classifier:
+        the 3 known subclasses plus an unidentified-arthropod class for
+        crops that are clearly arthropods but don't confidently match a
+        known subclass.
+    arthropod_class_name : str
+        The label in stage1_mappings that means "send to stage 2", e.g.
+        'Arthropod'.
+    batch_size : int, default=32
+        Batch size for both stages' DataLoaders.
+    num_workers : int, default=4
+        Number of DataLoader worker processes.
+ 
     Returns
     -------
     destination_crops_dir : str
         Path to the newly created directory containing crops sorted into
-        class-labelled subdirectories.
+        class-labelled subdirectories (Debris + every stage 2 subclass).
     """
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     root_dir = os.path.abspath(join(crops_dir, os.pardir))
     destination_crops_dir = join(root_dir, os.path.basename(crops_dir) + "_classified_test")
@@ -158,44 +180,62 @@ def classify_segments(model_path, crops_dir, run_id, mappings):
     if not os.path.exists(destination_crops_dir):
         os.makedirs(destination_crops_dir)
 
-    pretrained = torch.load(model_path)
-    pretrained.eval()
-    print("Model loaded and set to eval mode")
+    final_labels = [v for v in stage1_mappings.values() if v != arthropod_class_name] + list(stage2_mappings.values())
 
-    # TODO num_classes should not be hardcoded here
-    segclass = SegmentClassifier(id = run_id, data_dir = crops_dir, num_classes = 5, device = device)
-    segclass_loader = segclass.load_inference_data()
-    sub = pd.DataFrame(columns=['category', 'id'])
-    id_list = []
-    pred_list = []
-    # make subfolders for all classes
-    for key,subfolder in mappings.items():
-        sub_path = join(destination_crops_dir, subfolder)
+    for label in final_labels:
+        sub_path = join(destination_crops_dir, label)
         if not os.path.isdir(sub_path):
-            os.mkdir(join(sub_path))
-    pretrained = pretrained.to(device)
-    with torch.no_grad():
-        for image, idx in segclass_loader:
-            image = {key: value.to(device) if hasattr(value, 'to') else value for key, value in image.items()}
-            logits = pretrained(image)
-            predicted = list(torch.argmax(logits, 1).cpu().numpy())
-            probs = torch.nn.functional.softmax(logits, dim=1)
-            for id, prediction, prob in zip(idx, predicted, probs):
-                id_list.append(id)
-                # experimenting with threshold
-                # arth_classes = [1, 2, 3, 4] for 5-class model
-                # if prediction.tolist() in arth_classes & probs[prediction.tolist()] < 0.7:
-                #     pred_list.append(0)
-                # else:
-                #     pred_list.append(prediction.tolist())
-                pred_list.append(prediction.tolist())
-                shutil.copy(join(crops_dir, id),
-                            join(destination_crops_dir, mappings[prediction]))
-    sub = pd.DataFrame(columns=['category', 'id'])
-    sub['category'] = pred_list
-    sub['id'] = id_list
-    sub['category'] = sub['category'].map({v: k for k, v in mappings.items()})
-    sub = sub.sort_values(by='id')
+            os.mkdir(sub_path)
+
+    print("Loading stage 1 (binary) model")
+    stage1_model = torch.load(stage1_model_path)
+    stage1_model.eval()
+    stage1_model = stage1_model.to(device)
+
+    stage1_helper = SegmentClassifier(id=run_id, data_dir=crops_dir,
+                                      num_classes=len(stage1_mappings), device=device)
+    stage1_loader = stage1_helper.load_inference_data()
+
+    print("Running stage 1 inference")
+    stage1_preds = run_model_on_loader(stage1_model, stage1_loader, device)
+    stage1_labels = {filename: stage1_mappings[idx] for filename, idx in stage1_preds.items()}
+
+    del stage1_model
+    gc.collect()
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
+    arthropod_filenames = [f for f, label in stage1_labels.items() if label == arthropod_class_name]
+
+    print(f"Loading stage 2 (subclass) - {len(arthropod_filenames)} crops to classify")
+
+    stage2_model = torch.load(stage2_model_path)
+    stage2_model.eval()
+    stage2_model = stage2_model.to(device)
+
+    stage2_preds = {}
+    if len(arthropod_filenames) > 0:
+        stage2_dataset = FilteredInferenceDataset(crops_dir, arthropod_filenames)
+        stage2_loader = DataLoader(stage2_dataset, batch_size=batch_size, num_workers=num_workers)
+        stage2_preds = run_model_on_loader(stage2_model, stage2_loader, device)
+
+    del stage2_model
+    gc.collect()
+    torch.cude.empty_cache() if torch.cuda.is_available() else None
+
+    id_list = []
+    category_list = []
+
+    for filename, stage1_label in stage1_labels.items():
+        if stage1_label == arthropod_class_name:
+            final_label = stage2_mappings[stage2_preds[filename]]
+        else:
+            final_label = stage1_label
+    id_list.append(filename)
+    category_list.append(final_label)
+    shutil.copy(join(crops_dir, filename), join(destination_crops_dir, final_label))
+
+    sub = pd.DataFrame({"id": id_list, "category": category_list})
+    sub = sub.sort_values(by="id")
     sub.to_csv(crops_dir + "inference.csv", index=False)
     return destination_crops_dir
 
