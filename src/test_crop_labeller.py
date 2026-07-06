@@ -27,6 +27,13 @@ from label_crops import ImageFolderWithPaths, SegmentClassifier
 from utils.Flag import Flag
 from utils.Card import Card
 
+INFERENCE_TRANSFORM = transforms.Compose([
+    transforms.ToImage(),
+    transforms.Resize(size=(224, 224), antialias=True),
+    transforms.ToDtype(torch.float32, scale=True),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+
 def cli_args():
     """
     Parse command-line arguments for the classification and annotation pipeline.
@@ -40,7 +47,8 @@ def cli_args():
         - scans_dir (str): Path to the directory containing scanned sticky card images.
         - annot_scans_dir (str): Path to the directory where annotated card images will be saved.
         - crops_dir (str): Path to the directory containing flatbug-segmented crop images.
-        - model_path (str): Path to the pretrained PyTorch model (.pt file).
+        - stage1_model_path (str) : Path the the pretrained binary (Debris / Arthropod) model (.pt file)
+        - stage2_model_path (str) : Path to the pretrained subclass model (.pt file)
     """
     args_parse = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     args_parse.add_argument("-i", "--id", type=str, dest="id_num", required=True,
@@ -51,10 +59,70 @@ def cli_args():
                             help="Location where annotated scanned cards are to be stored")
     args_parse.add_argument("-c", "--crops", type=str, dest="crops_dir", required=True,
                             help="Location where flatbug segments generated from sticky card scans are stored")
-    args_parse.add_argument("-p", "--pt_path", type=str, dest="model_path",
-                            help="Location of pretrained model")
+    args_parse.add_argument("-p1", "--stage1_pt_path", type=str, dest="stage1_model_path", required=True,
+                            help="Location of the pretrained stage 1 (Debris vs. Arthropod) model")
+    args_parse.add_argument("-p2", "--stage2_pt_path", type=str, dest="stage2_model_path", required=True,
+                            help="Location of the pretrained stage 1 (Debris vs. Arthropod) model")
+
     args = args_parse.parse_args()
     return vars(args)
+
+class FilteredInferenceDataset(Dataset):
+    """
+    Loads a specific list of image files from a directory for inference.
+
+    Used for stage 2, which only needs to run on the subset of crops that 
+    stage 1 predicted as "Arthropod" rather than every file in crops_dir.
+
+    Attributes
+    ----------
+    crops_dir : str
+        Directory the files live in.
+    filenames : list of str
+        Filenames (relative to crops_dir) to load
+    """
+
+    def __init__(self, crops_dir, filenames):
+        self.crops_dir = crops_dir
+        self.filenames = filenames
+
+    def __len__(self):
+        return len(self.filenames)
+    
+    def __getitem__(self, index):
+        filename = self.filenames[index]
+        img = Image.open(join(self.crops_dir, filename)).convert("RGB")
+        img = INFERENCE_TRANSFORM(img)
+        return {"img": img}, filename
+    
+def run_model_on_loader(model, loader, device):
+    """
+    Runs a loaded model over a DataLoader and collects predictions.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        Model in eval mode.
+    loader : torch.utils.data.DataLoader
+        Yields (input_dict, filename) batches.
+    device : torch.device
+
+    Returns
+    -------
+    dict
+        Mapping from filename (str) to a predicted class index (int)
+    """
+
+    predictions = {}
+    with torch.no_grad():
+        for inputs, filenames in loader:
+            inputs = {key: value.to(device) if hasattr(value, "to") else value
+                      for key, value in inputs.items()}
+            logits = model(inputs)
+            preds = torch.argmax(logits, dim=1).cpu().numpy()
+            for filename, pred in zip(filenames, preds):
+                predictions[filename] = int(pred)
+    return predictions
 
 
 def classify_segments(model_path, crops_dir, run_id, mappings):
@@ -345,65 +413,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-# old, slower version:
-# def make_flag_list(crops_dir_arg, parent_arg, flag_list_arg, card_set_arg):
-#     card_match = r'[A-Z]*-[A-Z]*-[0-9]*'
-#     for crop in os.listdir(crops_dir_arg):
-#         if crop.endswith((".jpg",".png")):
-#             if isfile(join(crops_dir_arg,crop)):
-#                 match = re.compile(card_match)
-#                 result = match.search(crop)
-#                 #if result is not None: # some training data missing corresponding card
-#                 flag_list_arg.append(Flag(crop, parent_arg, result.group(0)+".jpg"))
-#                 card_set_arg.add(result.group(0))
-#     return flag_list_arg, card_set_arg
-
-# def annotate(json_data, flag_list_arg, scans_dir_arg, annot_scans_dir, img_list):
-#     temp_annot_list = flag_list_arg
-#     print(f"Starting annotation")
-#     colours = {"Small_black_weevil": 'r', "SWD_male": 'b', "SWD_parasitoid": 'g'}
-#     cropnum_match = r'CROPNUMBER_(\d*)_'
-#     #for path, image in img_list:
-#     for image in json_data["images"]:
-#         start_id = 0
-#         annot_flag = False
-#         start_set = False
-#         rect_list = []
-#         for annot in temp_annot_list:
-#             #if annot.card == path + ".jpg":
-#             if annot.card == image["file_name"]: # if annotation is for current card
-#                 print(annot.card)
-#                 print(annot.crop)
-#                 annot_flag = True
-#                 match = re.compile(cropnum_match)
-#                 annot_id = match.search(annot.crop).group(1)
-#                 for annotation in json_data["annotations"]:
-#                     if annotation["image_id"] == image["id"] and start_set == False:
-#                         start_id = annotation["id"]
-#                         start_set = True
-#                     if start_set:
-#                         if annotation["id"] == (start_id + int(annot_id)):
-#                             annot.bbox = annotation["bbox"]
-#                             rect_list.append(patches.Rectangle((annot.bbox[0], annot.bbox[1]), annot.bbox[2], annot.bbox[3],
-#                                                                edgecolor=colours[annot.parent], facecolor='none',
-#                                                                lw=0.5))
-#                             json_data["annotations"].remove(annotation)
-#                 temp_annot_list.remove(annot)
-#             if annot_flag: # if any annotations were found for this card
-#                 #img = Image.open(glob.glob(join(scans_dir_arg, image["file_name"][:-4]+"*"))[0])
-#
-#                 fig, ax = plt.subplots()
-#                 #ax.imshow(img)
-#                 ax.imshow(img_list[annot.card])
-#                 for rect in rect_list:
-#                     new_r = copy(rect)
-#                     ax.add_patch(new_r)
-#                 no_extension = re.compile(r'(.*)\.jpg').search(image["file_name"]).group(1)
-#                 plt.axis('off')
-#                 plt.savefig(join(annot_scans_dir, "pdfs", no_extension + "-annotated.pdf"), dpi=2400, bbox_inches="tight")
-#                 plt.close()
-#                 pages = convert_from_path(join(annot_scans_dir, "pdfs", no_extension + "-annotated.pdf"), dpi=2400)
-#                 for count, page in enumerate(pages):
-#                     page.save(join(annot_scans_dir, "jpgs", no_extension + "-annotated.jpg"), 'JPEG')
-#     print("Saved annotated image")
