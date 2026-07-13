@@ -47,8 +47,12 @@ def cli_args():
         - scans_dir (str): Path to the directory containing scanned sticky card images.
         - annot_scans_dir (str): Path to the directory where annotated card images will be saved.
         - crops_dir (str): Path to the directory containing flatbug-segmented crop images.
-        - stage1_model_path (str) : Path the the pretrained binary (Debris / Arthropod) model (.pt file)
-        - stage2_model_path (str) : Path to the pretrained subclass model (.pt file)
+        - stage1_model_path (str) : Path to the stage 1 model state dict (.pt file)
+        - stage2_model_path (str) : Path to the stage 2 model state dict (.pt file)
+        - stage1_arch (str): Architecture for stage 1 model (default: resnet50)
+        - stage2_arch (str): Architecture for stage 2 model (default: resnet50)
+        - stage1_size_aware (bool): Whether stage 1 model is size-aware
+        - stage2_size_aware (bool): Whether stage 2 model is size-aware
     """
     args_parse = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     args_parse.add_argument("-i", "--id", type=str, dest="id_num", required=True,
@@ -60,9 +64,17 @@ def cli_args():
     args_parse.add_argument("-c", "--crops", type=str, dest="crops_dir", required=True,
                             help="Location where flatbug segments generated from sticky card scans are stored")
     args_parse.add_argument("-p1", "--stage1_pt_path", type=str, dest="stage1_model_path", required=True,
-                            help="Location of the pretrained stage 1 (Debris vs. Arthropod) model")
+                            help="Location of the stage 1 model state dict")
     args_parse.add_argument("-p2", "--stage2_pt_path", type=str, dest="stage2_model_path", required=True,
-                            help="Location of the pretrained stage 1 (Debris vs. Arthropod) model")
+                            help="Location of the stage 2 model state dict")
+    args_parse.add_argument("--stage1_arch", type=str, dest="stage1_arch", default="resnet50",
+                            help="Architecture for stage 1 model (resnet50 or dinov2 variant)")
+    args_parse.add_argument("--stage2_arch", type=str, dest="stage2_arch", default="resnet50",
+                            help="Architecture for stage 2 model (resnet50 or dinov2 variant)")
+    args_parse.add_argument("--stage1_size_aware", dest="stage1_size_aware", action='store_true',
+                            help="Whether stage 1 model is size-aware")
+    args_parse.add_argument("--stage2_size_aware", dest="stage2_size_aware", action='store_true',
+                            help="Whether stage 2 model is size-aware")
 
     args = args_parse.parse_args()
     return vars(args)
@@ -125,8 +137,61 @@ def run_model_on_loader(model, loader, device):
     return predictions
 
 
+def load_model_from_state_dict(state_dict_path, num_classes, architecture, size_aware, device):
+    """
+    Load a model from a saved state dict.
+
+    Reconstructs the model architecture and loads the state dict weights.
+
+    Parameters
+    ----------
+    state_dict_path : str
+        Path to the saved state dict (.pt file)
+    num_classes : int
+        Number of classes the model was trained on
+    architecture : str
+        Model architecture ('resnet50' or dinov2 variant like 'dinov2_vitb14')
+    size_aware : bool
+        Whether the model was trained with size awareness
+    device : torch.device
+        Device to load the model onto
+
+    Returns
+    -------
+    model : torch.nn.Module
+        Model with loaded state dict, in eval mode
+    """
+    print(f"Loading {architecture} model from state dict")
+    
+    # Create a temporary SegmentClassifier to build the model
+    temp_classifier = SegmentClassifier(
+        id="inference",
+        data_dir=".",  # Dummy, not used for inference
+        num_classes=num_classes,
+        device=device,
+        mean_npb=1.0 if size_aware else None,  # Dummy value, not actually used for inference
+        std_npb=1.0 if size_aware else None,
+    )
+    
+    # Build the model architecture
+    temp_classifier.load_model(backbone=architecture)
+    model = temp_classifier.model
+    
+    # Load the state dict
+    try:
+        model.load_state_dict(torch.load(state_dict_path, map_location=device))
+        print(f"Successfully loaded state dict from {state_dict_path}")
+    except Exception as e:
+        print(f"Error loading state dict: {e}")
+        raise
+    
+    model.eval()
+    return model
+
+
 def classify_segments_hierarchical(stage1_model_path, stage2_model_path, crops_dir, run_id, 
-                                   stage1_mappings, stage2_mappings, arthropod_class_name, 
+                                   stage1_mappings, stage2_mappings, arthropod_class_name,
+                                   stage1_arch, stage2_arch, stage1_size_aware, stage2_size_aware,
                                    batch_size=32, num_workers=4):
     """
     Run two-stage hierarchical inference on segmented crop images and copy them
@@ -140,10 +205,9 @@ def classify_segments_hierarchical(stage1_model_path, stage2_model_path, crops_d
     Parameters
     ----------
     stage1_model_path : str
-        Path to the saved whole-model .pt file for the binary Debris/Arthropod
-        classifier (as saved via torch.save(classifier.model, ...)).
+        Path to the saved stage 1 model state dict (.pt file).
     stage2_model_path : str
-        Path to the saved whole-model .pt file for the subclass classifier.
+        Path to the saved stage 2 model state dict (.pt file).
     crops_dir : str
         Path to the directory containing crop images to classify.
     run_id : str
@@ -154,13 +218,18 @@ def classify_segments_hierarchical(stage1_model_path, stage2_model_path, crops_d
     stage2_mappings : dict
         Mapping from stage 2 class index to label, e.g.
         {0: 'SWD_male', 1: 'SWD_parasitoid', 2: 'Small_black_weevil',
-         3: 'Unidentified_Arthropod'}. Stage 2 is a 4-way classifier:
-        the 3 known subclasses plus an unidentified-arthropod class for
-        crops that are clearly arthropods but don't confidently match a
-        known subclass.
+         3: 'Unidentified_Arthropod'}.
     arthropod_class_name : str
         The label in stage1_mappings that means "send to stage 2", e.g.
         'Arthropod'.
+    stage1_arch : str
+        Architecture for stage 1 model ('resnet50' or dinov2 variant).
+    stage2_arch : str
+        Architecture for stage 2 model ('resnet50' or dinov2 variant).
+    stage1_size_aware : bool
+        Whether stage 1 model is size-aware.
+    stage2_size_aware : bool
+        Whether stage 2 model is size-aware.
     batch_size : int, default=32
         Batch size for both stages' DataLoaders.
     num_workers : int, default=4
@@ -188,9 +257,13 @@ def classify_segments_hierarchical(stage1_model_path, stage2_model_path, crops_d
             os.mkdir(sub_path)
 
     print("Loading stage 1 (binary) model")
-    stage1_model = torch.load(stage1_model_path)
-    stage1_model.eval()
-    stage1_model = stage1_model.to(device)
+    stage1_model = load_model_from_state_dict(
+        stage1_model_path,
+        num_classes=len(stage1_mappings),
+        architecture=stage1_arch,
+        size_aware=stage1_size_aware,
+        device=device
+    )
 
     stage1_helper = SegmentClassifier(id=run_id, data_dir=crops_dir,
                                       num_classes=len(stage1_mappings), device=device)
@@ -208,9 +281,13 @@ def classify_segments_hierarchical(stage1_model_path, stage2_model_path, crops_d
 
     print(f"Loading stage 2 (subclass) - {len(arthropod_filenames)} crops to classify")
 
-    stage2_model = torch.load(stage2_model_path)
-    stage2_model.eval()
-    stage2_model = stage2_model.to(device)
+    stage2_model = load_model_from_state_dict(
+        stage2_model_path,
+        num_classes=len(stage2_mappings),
+        architecture=stage2_arch,
+        size_aware=stage2_size_aware,
+        device=device
+    )
 
     stage2_preds = {}
     if len(arthropod_filenames) > 0:
@@ -236,7 +313,7 @@ def classify_segments_hierarchical(stage1_model_path, stage2_model_path, crops_d
 
     sub = pd.DataFrame({"id": id_list, "category": category_list})
     sub = sub.sort_values(by="id")
-    sub.to_csv(crops_dir + "inference.csv", index=False)
+    sub.to_csv(join(crops_dir, "inference.csv"), index=False)
     return destination_crops_dir
 
 def make_flag_list(crops_dir, parent, flag_list, card_set):
@@ -361,7 +438,6 @@ def annotate_card(card, rects, scans_dir, annot_scans_dir):
     -------
     None
     """
-# json_data, flag_list, scans_dir_arg, annot_scans_dir, img_list):
     print(f"Annotating card {card.filename}")
     img = Image.open(join(scans_dir, card.filename))
     fig, ax = plt.subplots()
@@ -379,7 +455,8 @@ def annotate_card(card, rects, scans_dir, annot_scans_dir):
     print("Saved annotated image")
 
 
-def classify_prep(id_num, scans_dir, annot_scans_dir, crops_dir, stage1_model_path, stage2_model_path):
+def classify_prep(id_num, scans_dir, annot_scans_dir, crops_dir, stage1_model_path, stage2_model_path,
+                  stage1_arch, stage2_arch, stage1_size_aware, stage2_size_aware):
     """
     Orchestrate the full hierarchical classification and annotation pipeline for
     sticky card scans.
@@ -402,25 +479,25 @@ def classify_prep(id_num, scans_dir, annot_scans_dir, crops_dir, stage1_model_pa
         Path to the directory containing flatbug crop images and the
         coco_instances.json annotation file.
     stage1_model_path : str
-        Path to the pretrained stage 1 (Debris vs. Arthropod) model (.pt).
+        Path to the stage 1 model state dict (.pt).
     stage2_model_path : str
-        Path to the pretrained stage 2 (subclass) model (.pt).
-
+        Path to the stage 2 model state dict (.pt).
+    stage1_arch : str
+        Architecture for stage 1 model.
+    stage2_arch : str
+        Architecture for stage 2 model.
+    stage1_size_aware : bool
+        Whether stage 1 model is size-aware.
+    stage2_size_aware : bool
+        Whether stage 2 model is size-aware.
     """
     Image.MAX_IMAGE_PIXELS = 933120000
 
     run_id = id_num + datetime.today().strftime("%m-%d-%H-%M")
 
-    # TODO modify OrigResNet50 and SizeResNet50 classes in label_crops.py to save class mappings as attribute,
-    # rather than hardcoding here. Order must match ImageFolder's alphabetical class_to_idx
-    # from each stage's training run.
+    # Stage mappings - MUST match the order from ImageFolder's alphabetical class_to_idx
+    # from each stage's training run
     stage1_mappings = {0: 'Arthropod', 1: 'Debris'}
-    # Stage 2 is a 4-way classifier: the 3 known subclasses PLUS an
-    # "unidentified arthropod" class for crops that are clearly arthropods
-    # but don't confidently match a known subclass. This is a genuine
-    # output class, not a discard bucket. Order must match the alphabetical
-    # ImageFolder class_to_idx from stage 2 training - confirm against your
-    # actual stage 2 training folder names before relying on this.
     stage2_mappings = {0: 'SWD_male', 1: 'SWD_parasitoid', 2: 'Small_black_weevil', 3: 'Unidentified_Arthropod'}
     arthropod_class_name = 'Arthropod'
  
@@ -428,13 +505,14 @@ def classify_prep(id_num, scans_dir, annot_scans_dir, crops_dir, stage1_model_pa
     destination_dir = classify_segments_hierarchical(
         stage1_model_path, stage2_model_path, crops_dir, run_id,
         stage1_mappings, stage2_mappings, arthropod_class_name,
+        stage1_arch, stage2_arch, stage1_size_aware, stage2_size_aware
     )
 
     if not os.path.isdir(join(annot_scans_dir, "pdfs")):
         os.mkdir(join(annot_scans_dir, "pdfs"))
     if not os.path.isdir(join(annot_scans_dir, "jpgs")):
         os.mkdir(join(annot_scans_dir, "jpgs"))
-    scans_dir = "C:\\Users\\Public\\Documents\\scans\\2024_paul_abram_scans"
+
     json_dir = os.path.join(crops_dir, "coco_instances.json")
 
     card_set = set()
@@ -446,8 +524,7 @@ def classify_prep(id_num, scans_dir, annot_scans_dir, crops_dir, stage1_model_pa
         json_data = json.load(file)
 
     for image in json_data["images"]:
-        card_id[image["id"]] = Card(
-            image["file_name"])  # use a card object so that we can store data about starting crop numbers later
+        card_id[image["id"]] = Card(image["file_name"])
 
     flag_list, card_set = make_flag_list(join(destination_dir, 'Small_black_weevil'), "Small_black_weevil",
                                          flag_list, card_set)
