@@ -293,7 +293,7 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
             val_preds_labels.append(idx2class[pred.max()])
 
         try:
-            torch.save(classifier.model, os.path.join(models_dir, f"SegmentClassifier_{run_id}.pt"))
+            torch.save(classifier.model.state_dict(), os.path.join(models_dir, f"SegmentClassifier_{run_id}.pt"))
         except:
             print("Could not save")
 
