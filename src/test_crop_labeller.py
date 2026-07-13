@@ -92,11 +92,15 @@ class FilteredInferenceDataset(Dataset):
         Directory the files live in.
     filenames : list of str
         Filenames (relative to crops_dir) to load
+    size_aware : bool
+        Whether to include dummy npb (number of pixels before resizing) values
+        for size-aware models.
     """
 
-    def __init__(self, crops_dir, filenames):
+    def __init__(self, crops_dir, filenames, size_aware=False):
         self.crops_dir = crops_dir
         self.filenames = filenames
+        self.size_aware = size_aware
 
     def __len__(self):
         return len(self.filenames)
@@ -105,7 +109,15 @@ class FilteredInferenceDataset(Dataset):
         filename = self.filenames[index]
         img = Image.open(join(self.crops_dir, filename)).convert("RGB")
         img = INFERENCE_TRANSFORM(img)
-        return {"img": img}, filename
+        
+        result = {"img": img}
+        
+        # If model is size-aware, provide a dummy normalized npb value
+        # (actual npb values aren't available during inference with this dataset)
+        if self.size_aware:
+            result["npb"] = torch.tensor(0.0, dtype=torch.float32)
+        
+        return result, filename
     
 def run_model_on_loader(model, loader, device):
     """
@@ -161,9 +173,10 @@ def load_model_from_state_dict(state_dict_path, num_classes, architecture, size_
     model : torch.nn.Module
         Model with loaded state dict, in eval mode
     """
-    print(f"Loading {architecture} model from state dict")
+    print(f"Loading {architecture} model (size_aware={size_aware}) from state dict")
     
     # Create a temporary SegmentClassifier to build the model
+    # Using dummy values for parameters that aren't needed for inference
     temp_classifier = SegmentClassifier(
         id="inference",
         data_dir=".",  # Dummy, not used for inference
@@ -291,7 +304,7 @@ def classify_segments_hierarchical(stage1_model_path, stage2_model_path, crops_d
 
     stage2_preds = {}
     if len(arthropod_filenames) > 0:
-        stage2_dataset = FilteredInferenceDataset(crops_dir, arthropod_filenames)
+        stage2_dataset = FilteredInferenceDataset(crops_dir, arthropod_filenames, size_aware=stage2_size_aware)
         stage2_loader = DataLoader(stage2_dataset, batch_size=batch_size, num_workers=num_workers)
         stage2_preds = run_model_on_loader(stage2_model, stage2_loader, device)
 
