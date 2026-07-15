@@ -767,6 +767,7 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         self.val_targets = []
         self.prev_val_acc = 0
         self.train_classes = None
+        self.class_mappings = None
 
     def load_data(self):
         """

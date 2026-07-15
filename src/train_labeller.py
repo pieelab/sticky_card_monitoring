@@ -301,7 +301,9 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         # UNCOMMENT LATER
         # plot_training_history(history, run_id=run_id, outputs_train_dir=outputs_train_dir)
         cm = confusion_matrix(val_targets_labels, val_preds_labels)
-        ConfusionMatrixDisplay(cm, display_labels=list(val_loader.dataset.class_to_idx.keys())).plot()
+        cmp = ConfusionMatrixDisplay(cm, display_labels=list(val_loader.dataset.class_to_idx.keys()))
+        fig, ax = plt.subplots(figsize=(20,20))
+        cmp.plot(ax=ax)
         plt.savefig(os.path.join(outputs_train_dir, f"confusion_matrix_{run_id}.png"))
 
         # current_datetime = datetime.datetime.now()
