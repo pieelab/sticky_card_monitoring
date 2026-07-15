@@ -767,7 +767,7 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         self.val_targets = []
         self.prev_val_acc = 0
         self.train_classes = None
-        self.class_mappings = None
+        self.class_mappings = None  # Initialize as None for inference
 
     def load_data(self):
         """
@@ -920,18 +920,20 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
                     for param in layer.parameters():
                         param.requires_grad = False
 
-        with open(f"C:\\Users\\ALANalysis\\sticky_card_monitoring\\outputs\\train\\run_notes_{self.id}.csv", 'a') as rn:
-            #rn.write('ID, Epoch, Training_loss, validation_loss, validation_accuracy' + '\n')
-            rn.write('ID, Epoch,')
-            cols = ['Training_loss_', 'Training_acc_', 'Validation_loss_', 'Validation_acc_']
-            for col in cols:
-                for class_id in self.class_mappings:
-                    rn.write(col + str(class_id[0]) + ',')
-                rn.write(col + 'mean' + ',')
-            rn.write('\n')
+        # Only write CSV headers if this is a training run (not inference)
+        if self.class_mappings is not None:
+            with open(f"C:\\Users\\ALANalysis\\sticky_card_monitoring\\outputs\\train\\run_notes_{self.id}.csv", 'a') as rn:
+                #rn.write('ID, Epoch, Training_loss, validation_loss, validation_accuracy' + '\n')
+                rn.write('ID, Epoch,')
+                cols = ['Training_loss_', 'Training_acc_', 'Validation_loss_', 'Validation_acc_']
+                for col in cols:
+                    for class_id in self.class_mappings:
+                        rn.write(col + str(class_id[0]) + ',')
+                    rn.write(col + 'mean' + ',')
+                rn.write('\n')
 
-        with open(f"C:\\Users\\ALANalysis\\sticky_card_monitoring\\outputs\\train\\val_notes_{self.id}.csv", 'a') as vn:
-            vn.write('ID, Epoch, Class, Prediction, Filename' + '\n')
+            with open(f"C:\\Users\\ALANalysis\\sticky_card_monitoring\\outputs\\train\\val_notes_{self.id}.csv", 'a') as vn:
+                vn.write('ID, Epoch, Class, Prediction, Filename' + '\n')
 
         self.model = self.model.to(self.device)
 
