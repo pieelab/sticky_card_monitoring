@@ -24,19 +24,43 @@ The first stage effectively flags probable arthropods, while the second stage fu
 The labeller is based on [`DinoV2`](https://github.com/facebookresearch/dinov2) architecture and uses ImageNet-1k weights. Class imbalance characterises both training and expected deployment data. The dataset used to build the models was composed as follows:
 
 1. 81,546 Arthropod
+  1. 697 Small_black_weevil
+  2. 283 SWD_parasitoid
+  3. 78 SWD_male
+  4. 80,488 Unidentified Arthropod
 2. 11,373 Debris
-3. 697 Small_black_weevil
-4. 283 SWD_parasitoid
-5. 78 SWD_male
-
-(*Note that for stage 1 training Small_black_weevil, SWD_parasitoid, and SWD_male were treated as Arthropod*)
 
 These data originated from a cross-Canada survey conducted in 2022. Please contact the PIEE Lab if you have further questions.
 
 ## Usage
 ### Cloning the Repo
+To clone the repository run:
+
+```bash
+git clone https://github.com/pieelab/sticky_card_monitoring.git
+```
 
 ### Setting Up the Python Environment
+
+Navigate to the repos home directory:
+```bash
+cd sticky_card_monitoring
+```
+
+Setup the conda envuronment with:
+```bash
+conda env create -f environment.yml
+```
+
+Flatbug is not yet distributed as a python package, so install it into the environment with:
+
+```bash
+conda activate sticky-card-classifier
+cd ..
+git clone https://github.com/darsa-group/flat-bug.git
+cd flat-bug
+pip install -e .
+```
 
 ### Training
 
