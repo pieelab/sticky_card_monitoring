@@ -66,7 +66,34 @@ pip install -e .
 
 `train_labeller.py` has a number of arguments, described in `def cli_args()` at top of file.
 
-Among these arguments is a size-aware classification option that has not been tested with the most recent updates. This requires input data that have been processed with `04_rescale-images.py`.
+Our pretrained models were trained using the following commands:
+1. **Stage 1**:
+  ```bash
+  python .src/train_labeller.py \
+    -i 10 \
+    -d <Stage 1 Training Files> \
+    -m raw \
+    -n 2 \
+    -p .\models\ \
+    -r dinov2_vitb14 \
+    -a \
+    -e 25 \
+    -t 1e-4
+  ```
+
+2. **Stage 2**:
+  ```bash
+  python .src/train_labeller.py \
+    -i 11 \
+    -d <Stage 2 Training Files> \
+    -m raw \
+    -n 4 \
+    -p .\models\ \
+    -r dinov2_vitb14 \
+    -a \
+    -e 25 \
+    -t 1e-4
+  ```
 
 ### Annotating scanned sticky cards with pretrained model
 
