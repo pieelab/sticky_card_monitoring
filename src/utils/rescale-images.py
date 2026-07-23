@@ -19,7 +19,9 @@ from pathlib import Path
 from tqdm import tqdm
 import argparse
 
+
 BLACK = [0, 0, 0]
+
 
 def count_mask_pixels(image):
     """
@@ -35,6 +37,7 @@ def count_mask_pixels(image):
     int
         Number of non-black pixels
     """
+    # Convert to RGB if BGR
     if image.shape[-1] == 3:
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     
@@ -60,6 +63,7 @@ def pad_scale(im, target_size):
     """
     h, w = im.shape[:2]
     
+    # Pad to square
     if w > h:
         vertical_margin = (w - h) / 2
         top_margin = np.ceil(vertical_margin).astype(int)
@@ -73,6 +77,7 @@ def pad_scale(im, target_size):
         pad = cv2.copyMakeBorder(im, 0, 0, left_margin, right_margin, 
                                  cv2.BORDER_CONSTANT, value=BLACK)
     
+    # Resize
     resized_image = cv2.resize(pad, (target_size, target_size))
     resized_mask_pixels = count_mask_pixels(resized_image)
     
@@ -135,6 +140,16 @@ def process_crops(source_dir, target_dir, target_size=224, recursive=False):
     
     target_path.mkdir(parents=True, exist_ok=True)
     
+    # Copy COCO metadata if it exists
+    import shutil
+    coco_source = source_path / 'coco_instances.json'
+    if coco_source.exists():
+        coco_target = target_path / 'coco_instances.json'
+        shutil.copy2(coco_source, coco_target)
+        print(f"✓ Copied COCO metadata: coco_instances.json")
+    else:
+        print(f"⚠ Warning: coco_instances.json not found in source directory")
+    
     # Find crops folders
     if recursive:
         crops_folders = find_crops_folders(source_dir)
@@ -162,6 +177,17 @@ def process_crops(source_dir, target_dir, target_size=224, recursive=False):
             crops_target = target_path / 'crops'
         
         crops_target.mkdir(parents=True, exist_ok=True)
+        
+        # Copy metadata file for this scan if in recursive mode
+        if recursive:
+            scan_source_dir = Path(crops_source).parent
+            # Look for metadata files
+            metadata_files = list(scan_source_dir.glob('metadata_*.json'))
+            for metadata_file in metadata_files:
+                metadata_target = target_path / parent_name / metadata_file.name
+                metadata_target.parent.mkdir(parents=True, exist_ok=True)
+                import shutil
+                shutil.copy2(metadata_file, metadata_target)
         
         # Find all PNG files in this crops folder
         images = glob(os.path.join(crops_source, '*.png'))
