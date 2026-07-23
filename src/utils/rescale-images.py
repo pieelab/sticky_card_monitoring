@@ -262,16 +262,6 @@ Examples:
     
     args = parser.parse_args()
     
-    print("="*70)
-    print("CROP RESCALING AND SIZE METADATA ADDITION")
-    print("="*70)
-    print(f"\nSource:      {args.source}")
-    print(f"Target:      {args.target}")
-    print(f"Target size: {args.target_size}x{args.target_size}")
-    print(f"Recursive:   {args.recursive}")
-    print()
-    
-    # Process crops
     total = process_crops(
         args.source, 
         args.target, 
@@ -279,25 +269,12 @@ Examples:
         recursive=args.recursive
     )
     
-    print("\n" + "="*70)
-    print(f"✓ Processing complete!")
+    print(f" Processing complete")
     print(f"  Total crops processed: {total}")
     print(f"  Output directory: {args.target}")
-    print("="*70)
     
-    if total > 0:
-        print("\nNext step: Run inference with these rescaled crops:")
-        print(f"  python swd_annotation_inference.py \\")
-        print(f"      -b models/binary.pt \\")
-        print(f"      -m models/multi.pt \\")
-        print(f"      -c {args.target} \\")
-        print(f"      -s scans \\")
-        print(f"      -o output \\")
-        print(f"      --arch dinov2_vitb14 \\")
-        print(f"      --size_aware \\")
-        print(f"      --annotate_classes SWD_male SWD_parasitoid SBW")
-    else:
-        print("\n⚠ No crops were processed. Check:")
+    if total == 0:
+        print("\n No crops were processed. Check:")
         print("  1. Source directory path is correct")
         print("  2. Directory contains 'crops' folders or subdirectories with 'crops'")
         print("  3. PNG files exist in the crops folders")
