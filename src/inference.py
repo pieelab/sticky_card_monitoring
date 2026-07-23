@@ -76,7 +76,7 @@ class SWDAnnotationPipeline:
         self.device = device
         self.arch = arch
         self.size_aware = size_aware
-
+        
         if size_aware:
             self.mean_npb = 0.0
             self.std_npb = 1.0
@@ -90,14 +90,14 @@ class SWDAnnotationPipeline:
             self.annotate_classes = annotate_classes
         
         self.output_dir.mkdir(parents=True, exist_ok=True)
-
+        
         print("Loading models...")
         self.binary_classifier = self._load_model(binary_model_path, num_classes=2)
         self.multi_classifier = self._load_model(multi_model_path, num_classes=4)
-
+        
         print("Loading COCO metadata...")
         self.coco_data = self._load_coco_metadata()
-
+        
         self.image_id_to_annotations = self._build_annotation_lookup()
         self.crop_to_image_mapping = self._build_crop_to_image_mapping()
         
@@ -206,7 +206,7 @@ class SWDAnnotationPipeline:
             else:
                 possible_names = []
                 
-                if '/' in filename:
+                if '/' in filename:                    
                     base = filename.split('/')[-1]
                     base_no_ext = base.rsplit('.', 1)[0] if '.' in base else base
                     possible_names.append(base_no_ext)
@@ -222,7 +222,7 @@ class SWDAnnotationPipeline:
         print(f"✓ Matched {matched_count} of {len(self.coco_data.get('images', []))} COCO images with crop folders")
         
         if matched_count == 0:
-            print("\n WARNING: No crop folders matched with COCO metadata!")
+            print("\n⚠ WARNING: No crop folders matched with COCO metadata!")
             print("Debugging info:")
             print(f"  Crop folder names (first 3):")
             for name in sorted(crop_folders.keys())[:3]:
@@ -259,12 +259,56 @@ class SWDAnnotationPipeline:
         """
         img = Image.open(crop_path).convert('RGB')
         transform = self._get_transform()
-        return transform(img).unsqueeze(0)
+        return transform(img).unsqueeze(0)  # Add batch dimension
+    
+    def _extract_metadata_from_filename(self, crop_path):
+        """
+        Extract size metadata from rescaled crop filename.
+        
+        Rescaled crop filenames have format: <name>_<width>_<height>_<npb>_<npa>.png
+        Example: crop_000000_1024_768_45234_11245.png
+        
+        Parameters
+        ----------
+        crop_path : str or Path
+            Path to crop image
+            
+        Returns
+        -------
+        dict
+            Dictionary with keys: width, height, npb, npa
+            Returns None if metadata couldn't be extracted
+        """
+        try:
+            filename = Path(crop_path).stem  # Get filename without extension
+            parts = filename.split('_')
+            
+            if len(parts) >= 4:
+                try:
+                    width = int(parts[-4])
+                    height = int(parts[-3])
+                    npb = int(parts[-2])      # Number of pixels before resizing
+                    npa = int(parts[-1])      # Number of pixels after resizing
+                    
+                    return {
+                        'width': width,
+                        'height': height,
+                        'npb': npb,
+                        'npa': npa
+                    }
+                except (ValueError, IndexError):
+                    return None
+            return None
+        except Exception:
+            return None
     
     @torch.no_grad()
     def _classify_crop(self, crop_path):
         """
         Run inference on a crop image through both classifiers.
+        
+        Handles both size-aware and non-size-aware models.
+        For size-aware models, extracts npb from the rescaled crop filename.
         
         Parameters
         ----------
@@ -282,8 +326,21 @@ class SWDAnnotationPipeline:
         """
         try:
             img_tensor = self._load_crop(crop_path).to(self.device)
-
+            
+            npb_tensor = None
+            if self.size_aware:
+                metadata = self._extract_metadata_from_filename(crop_path)
+                if metadata:
+                    npb = float(metadata['npb'])
+                    npb_norm = (npb - self.mean_npb) / self.std_npb if self.std_npb != 0 else npb
+                    npb_tensor = torch.tensor([npb_norm], dtype=torch.float32).to(self.device)
+                else:
+                    npb_tensor = torch.tensor([0.0], dtype=torch.float32).to(self.device)
+            
             binary_input = {"img": img_tensor}
+            if self.size_aware and npb_tensor is not None:
+                binary_input["npb"] = npb_tensor
+            
             binary_logits = self.binary_classifier.model(binary_input)
             binary_probs = torch.nn.functional.softmax(binary_logits, dim=1)
             binary_pred = torch.argmax(binary_logits, dim=1).item()
@@ -296,9 +353,12 @@ class SWDAnnotationPipeline:
                 'multi_class': None,
                 'multi_confidence': None
             }
-
+            
             if binary_class == 'arthropod':
                 multi_input = {"img": img_tensor}
+                if self.size_aware and npb_tensor is not None:
+                    multi_input["npb"] = npb_tensor
+                
                 multi_logits = self.multi_classifier.model(multi_input)
                 multi_probs = torch.nn.functional.softmax(multi_logits, dim=1)
                 multi_pred = torch.argmax(multi_logits, dim=1).item()
@@ -310,6 +370,8 @@ class SWDAnnotationPipeline:
             
         except Exception as e:
             print(f"Error classifying {crop_path}: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 'binary_class': 'error',
                 'binary_confidence': 0.0,
@@ -335,10 +397,10 @@ class SWDAnnotationPipeline:
         else:
             return prediction['multi_class'] if prediction['multi_class'] else 'unidentified'
     
+        
     def _draw_bbox(self, image, bbox, label, confidence):
         """
         Draw a bounding box with label on an image.
-        
         Parameters
         ----------
         image : PIL.Image
@@ -355,17 +417,17 @@ class SWDAnnotationPipeline:
         x, y, w, h = bbox
         x1, y1 = int(x), int(y)
         x2, y2 = int(x + w), int(y + h)
-
+        
         color = self.CLASS_COLORS.get(label, (255, 255, 255))
-
+        
         draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
-
+        
         label_text = f"{label}\n{confidence:.2f}"
         try:
             font = ImageFont.truetype("arial.ttf", 12)
         except:
             font = ImageFont.load_default()
-
+        
         text_bbox = draw.textbbox((x1, y1 - 20), label_text, font=font)
         draw.rectangle(text_bbox, fill=color)
         draw.text((x1, y1 - 20), label_text, fill=(255, 255, 255), font=font)
@@ -395,14 +457,14 @@ class SWDAnnotationPipeline:
             
             if not crops_path.exists():
                 continue
-
+            
             if scan_name not in self.crop_to_image_mapping:
                 print(f"Warning: {scan_name} not found in COCO metadata")
                 continue
             
             image_id, image_filename, _ = self.crop_to_image_mapping[scan_name]
             annotations = self.image_id_to_annotations[image_id]
-
+            
             for idx, annotation in enumerate(annotations):
                 crop_filename = f"crop_{idx:06d}.png"
                 crop_path = crops_path / crop_filename
@@ -423,7 +485,7 @@ class SWDAnnotationPipeline:
                 prediction = self._classify_crop(crop_path)
                 final_class = self._get_final_class(prediction)
                 confidence = prediction['multi_confidence'] if prediction['multi_class'] else prediction['binary_confidence']
-
+                
                 predictions_by_scan[scan_name].append({
                     'annotation_id': annotation['id'],
                     'bbox': annotation['bbox'],
@@ -434,10 +496,10 @@ class SWDAnnotationPipeline:
                     'multi_class': prediction['multi_class'],
                     'multi_confidence': prediction['multi_confidence']
                 })
-
+        
         print("\nCreating annotated scans...")
         self._annotate_scans(predictions_by_scan, confidence_threshold)
-
+        
         stats = self._generate_statistics(predictions_by_scan)
         
         return stats
@@ -471,7 +533,7 @@ class SWDAnnotationPipeline:
                     if potential_path.exists():
                         scan_path = potential_path
                         break
-
+            
             if not scan_path:
                 for potential_path in self.scans_dir.rglob(f"{scan_name}*"):
                     if potential_path.is_file() and potential_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
@@ -480,13 +542,13 @@ class SWDAnnotationPipeline:
             
             if not scan_path:
                 continue
-
+            
             image = Image.open(scan_path).convert('RGB')
-
+            
             for pred in predictions:
                 if pred['confidence'] >= confidence_threshold and pred['class'] in self.annotate_classes:
                     self._draw_bbox(image, pred['bbox'], pred['class'], pred['confidence'])
-
+            
             output_path = self.output_dir / f"annotated_{scan_name}.jpg"
             image.save(output_path, quality=95)
     
@@ -523,7 +585,7 @@ class SWDAnnotationPipeline:
             if pred['class'] in self.annotate_classes:
                 stats['annotated_class_counts'][pred['class']] += 1
                 stats['annotated_detections'] += 1
-        
+
         for class_name in self.CLASS_COLORS.keys():
             class_preds = [p['confidence'] for p in all_predictions if p['class'] == class_name]
             if class_preds:
@@ -552,7 +614,7 @@ class SWDAnnotationPipeline:
         
         results_dir = Path(results_dir)
         results_dir.mkdir(parents=True, exist_ok=True)
-        
+
         stats_json = {
             'total_scans': stats['total_scans'],
             'total_detections': stats['total_detections'],
@@ -564,7 +626,7 @@ class SWDAnnotationPipeline:
             'confidence_stats': stats['confidence_stats'],
             'timestamp': stats['timestamp']
         }
-        
+
         stats_path = results_dir / 'inference_stats.json'
         with open(stats_path, 'w') as f:
             json.dump(stats_json, f, indent=2)
@@ -601,7 +663,7 @@ def main():
                              'Use this to skip unidentified arthropods: --annotate_classes SWD_male SWD_parasitoid SBW')
     
     args = parser.parse_args()
-    
+
     if args.device == 'auto':
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     else:
@@ -620,9 +682,9 @@ def main():
         arch=args.arch,
         size_aware=args.size_aware
     )
-    
+
     stats = pipeline.run_inference(confidence_threshold=args.threshold)
-    
+
     pipeline.save_results(stats)
 
 if __name__ == '__main__':
