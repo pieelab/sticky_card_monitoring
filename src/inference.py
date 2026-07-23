@@ -13,6 +13,8 @@ from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 import cv2
 
+# Import the SegmentClassifier from your training code
+# Adjust the import path as needed for your project structure
 sys.path.insert(0, r'C:\Users\ALANalysis\sticky_card_monitoring')
 from src.label_crops import SegmentClassifier
 
@@ -42,7 +44,7 @@ class SWDAnnotationPipeline:
     
     def __init__(self, binary_model_path, multi_model_path, crops_dir, 
                  scans_dir, output_dir, device='cuda' if torch.cuda.is_available() else 'cpu',
-                 annotate_classes=None):
+                 annotate_classes=None, arch='resnet50'):
         """
         Initialize the annotation pipeline.
         
@@ -63,6 +65,10 @@ class SWDAnnotationPipeline:
         annotate_classes : list of str, optional
             List of class names to annotate. If None, all classes are annotated.
             Example: ['SWD_male', 'SWD_parasitoid', 'SBW'] (skip 'unidentified')
+        arch : str, optional
+            Model architecture used during training. 
+            Options: 'resnet50', 'dinov2_vitb14', 'dinov2_vitl14', etc.
+            Default: 'resnet50'. Must match the architecture used to train your models.
         """
         self.binary_model_path = binary_model_path
         self.multi_model_path = multi_model_path
@@ -70,21 +76,27 @@ class SWDAnnotationPipeline:
         self.scans_dir = Path(scans_dir)
         self.output_dir = Path(output_dir)
         self.device = device
+        self.arch = arch
         
+        # Set default: all classes if not specified
         if annotate_classes is None:
             self.annotate_classes = list(self.CLASS_COLORS.keys())
         else:
             self.annotate_classes = annotate_classes
-
+        
+        # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Load models
         print("Loading models...")
         self.binary_classifier = self._load_model(binary_model_path, num_classes=2)
         self.multi_classifier = self._load_model(multi_model_path, num_classes=4)
         
+        # Load COCO metadata
         print("Loading COCO metadata...")
         self.coco_data = self._load_coco_metadata()
         
+        # Create lookup tables
         self.image_id_to_annotations = self._build_annotation_lookup()
         self.crop_folder_to_image_id = self._build_crop_to_image_mapping()
         
@@ -104,6 +116,8 @@ class SWDAnnotationPipeline:
         classifier : SegmentClassifier
             Loaded classifier in eval mode
         """
+        # Create a temporary classifier instance for model loading
+        # Use dummy parameters since we only need the model structure
         classifier = SegmentClassifier(
             id="inference",
             data_dir=str(self.crops_dir),
@@ -123,7 +137,7 @@ class SWDAnnotationPipeline:
         )
         
         # Load model architecture
-        classifier.load_inference_model(backbone='resnet50')
+        classifier.load_inference_model(backbone=self.arch)
         
         # Load weights
         if os.path.exists(checkpoint_path):
@@ -178,6 +192,8 @@ class SWDAnnotationPipeline:
             image_id = image_info['id']
             filename = image_info['file_name']
             
+            # Extract scan name from file path (e.g., "ACM-BC-2501-B068")
+            # Adjust this based on your actual file naming convention
             scan_name = filename.split('/')[-2] if '/' in filename else filename.rsplit('_', 1)[0]
             
             mapping[scan_name] = (image_id, filename, scan_name)
@@ -210,7 +226,7 @@ class SWDAnnotationPipeline:
         """
         img = Image.open(crop_path).convert('RGB')
         transform = self._get_transform()
-        return transform(img).unsqueeze(0)
+        return transform(img).unsqueeze(0)  # Add batch dimension
     
     @torch.no_grad()
     def _classify_crop(self, crop_path):
@@ -232,8 +248,10 @@ class SWDAnnotationPipeline:
         }
         """
         try:
+            # Load and prepare crop
             img_tensor = self._load_crop(crop_path).to(self.device)
             
+            # First stage: binary classification
             binary_input = {"img": img_tensor}
             binary_logits = self.binary_classifier.model(binary_input)
             binary_probs = torch.nn.functional.softmax(binary_logits, dim=1)
@@ -248,6 +266,7 @@ class SWDAnnotationPipeline:
                 'multi_confidence': None
             }
             
+            # Second stage: multi-class classification (only if arthropod)
             if binary_class == 'arthropod':
                 multi_input = {"img": img_tensor}
                 multi_logits = self.multi_classifier.model(multi_input)
@@ -303,20 +322,26 @@ class SWDAnnotationPipeline:
         """
         draw = ImageDraw.Draw(image)
         
+        # Convert COCO format [x, y, w, h] to corner coordinates
         x, y, w, h = bbox
         x1, y1 = int(x), int(y)
         x2, y2 = int(x + w), int(y + h)
-
+        
+        # Get color for this class
         color = self.CLASS_COLORS.get(label, (255, 255, 255))
         
+        # Draw rectangle
         draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
         
+        # Draw label
         label_text = f"{label}\n{confidence:.2f}"
         try:
+            # Try to use a nice font if available
             font = ImageFont.truetype("arial.ttf", 12)
         except:
             font = ImageFont.load_default()
         
+        # Draw text background
         text_bbox = draw.textbbox((x1, y1 - 20), label_text, font=font)
         draw.rectangle(text_bbox, fill=color)
         draw.text((x1, y1 - 20), label_text, fill=(255, 255, 255), font=font)
@@ -336,6 +361,7 @@ class SWDAnnotationPipeline:
         """
         predictions_by_scan = defaultdict(list)
         
+        # Iterate through crop folders
         crop_folders = [d for d in self.crops_dir.iterdir() if d.is_dir() and (d / 'crops').exists()]
         
         print(f"\nRunning inference on {len(crop_folders)} scans...")
@@ -347,6 +373,7 @@ class SWDAnnotationPipeline:
             if not crops_path.exists():
                 continue
             
+            # Get image info from COCO data
             if scan_name not in self.crop_to_image_mapping:
                 print(f"Warning: {scan_name} not found in COCO metadata")
                 continue
@@ -354,10 +381,12 @@ class SWDAnnotationPipeline:
             image_id, image_filename, _ = self.crop_to_image_mapping[scan_name]
             annotations = self.image_id_to_annotations[image_id]
             
+            # Classify each crop
             for idx, annotation in enumerate(annotations):
-                crop_filename = f"crop_{idx:06d}.png"
+                crop_filename = f"crop_{idx:06d}.png"  # Adjust based on your naming
                 crop_path = crops_path / crop_filename
                 
+                # Try to find the actual crop file
                 crop_files = list(crops_path.glob(f"*{idx:06d}*"))
                 if not crop_files:
                     crop_files = list(crops_path.glob("*.png"))
@@ -371,10 +400,12 @@ class SWDAnnotationPipeline:
                 if not crop_path.exists():
                     continue
                 
+                # Run inference
                 prediction = self._classify_crop(crop_path)
                 final_class = self._get_final_class(prediction)
                 confidence = prediction['multi_confidence'] if prediction['multi_class'] else prediction['binary_confidence']
                 
+                # Store prediction with annotation data
                 predictions_by_scan[scan_name].append({
                     'annotation_id': annotation['id'],
                     'bbox': annotation['bbox'],
@@ -386,9 +417,11 @@ class SWDAnnotationPipeline:
                     'multi_confidence': prediction['multi_confidence']
                 })
         
+        # Load original scans and draw annotations
         print("\nCreating annotated scans...")
         self._annotate_scans(predictions_by_scan, confidence_threshold)
         
+        # Generate summary statistics
         stats = self._generate_statistics(predictions_by_scan)
         
         return stats
@@ -405,6 +438,7 @@ class SWDAnnotationPipeline:
             Minimum confidence to draw
         """
         for scan_name, predictions in tqdm(predictions_by_scan.items(), desc="Annotating scans"):
+            # Get scan information
             if scan_name not in self.crop_to_image_mapping:
                 continue
             
@@ -415,12 +449,15 @@ class SWDAnnotationPipeline:
                 print(f"Warning: Original scan not found: {scan_path}")
                 continue
             
+            # Load original scan
             image = Image.open(scan_path).convert('RGB')
             
+            # Draw annotations (only for classes in annotate_classes list)
             for pred in predictions:
                 if pred['confidence'] >= confidence_threshold and pred['class'] in self.annotate_classes:
                     self._draw_bbox(image, pred['bbox'], pred['class'], pred['confidence'])
             
+            # Save annotated image
             output_path = self.output_dir / f"annotated_{scan_name}.jpg"
             image.save(output_path, quality=95)
     
@@ -452,6 +489,7 @@ class SWDAnnotationPipeline:
         for predictions in predictions_by_scan.values():
             all_predictions.extend(predictions)
         
+        # Count by class
         for pred in all_predictions:
             stats['class_counts'][pred['class']] += 1
             # Count annotated classes separately
@@ -459,6 +497,7 @@ class SWDAnnotationPipeline:
                 stats['annotated_class_counts'][pred['class']] += 1
                 stats['annotated_detections'] += 1
         
+        # Confidence statistics
         for class_name in self.CLASS_COLORS.keys():
             class_preds = [p['confidence'] for p in all_predictions if p['class'] == class_name]
             if class_preds:
@@ -488,6 +527,7 @@ class SWDAnnotationPipeline:
         results_dir = Path(results_dir)
         results_dir.mkdir(parents=True, exist_ok=True)
         
+        # Convert defaultdict to regular dict for JSON serialization
         stats_json = {
             'total_scans': stats['total_scans'],
             'total_detections': stats['total_detections'],
@@ -500,6 +540,7 @@ class SWDAnnotationPipeline:
             'timestamp': stats['timestamp']
         }
         
+        # Save statistics
         stats_path = results_dir / 'inference_stats.json'
         with open(stats_path, 'w') as f:
             json.dump(stats_json, f, indent=2)
@@ -524,6 +565,9 @@ def main():
                         help='Confidence threshold for annotations (default: 0.5)')
     parser.add_argument('--device', type=str, default='auto',
                         help='Device to use (cuda/cpu), default: auto')
+    parser.add_argument('--arch', type=str, default='resnet50',
+                        help='Model architecture used during training. Options: resnet50, dinov2_vitb14, dinov2_vitl14, etc. '
+                             'Default: resnet50. Must match the architecture used to train your models.')
     parser.add_argument('--annotate_classes', type=str, nargs='+', default=None,
                         help='Classes to annotate (e.g., SWD_male SWD_parasitoid SBW). '
                              'If not specified, all classes are annotated. '
@@ -531,6 +575,7 @@ def main():
     
     args = parser.parse_args()
     
+    # Determine device
     if args.device == 'auto':
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     else:
@@ -538,6 +583,7 @@ def main():
     
     print(f"Using device: {device}")
     
+    # Create pipeline
     pipeline = SWDAnnotationPipeline(
         binary_model_path=args.binary_model,
         multi_model_path=args.multi_model,
@@ -545,11 +591,14 @@ def main():
         scans_dir=args.scans_dir,
         output_dir=args.output_dir,
         device=device,
-        annotate_classes=args.annotate_classes
+        annotate_classes=args.annotate_classes,
+        arch=args.arch
     )
     
+    # Run inference
     stats = pipeline.run_inference(confidence_threshold=args.threshold)
     
+    # Save results
     pipeline.save_results(stats)
 
 
