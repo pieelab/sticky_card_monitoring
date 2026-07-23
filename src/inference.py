@@ -20,7 +20,7 @@ class SWDAnnotationPipeline:
     """
     Pipeline for running inference on flatbug crops and annotating original scans.
     """
-
+    
     CLASS_COLORS = {
         'SWD_male': (255, 0, 0),           # Red
         'SWD_parasitoid': (0, 255, 0),     # Green
@@ -28,7 +28,7 @@ class SWDAnnotationPipeline:
         'unidentified': (255, 255, 0),     # Yellow
         'debris': (128, 128, 128)          # Gray
     }
-
+    
     BINARY_CLASSES = {0: 'debris', 1: 'arthropod'}
     MULTI_CLASSES = {
         0: 'SWD_male',
@@ -83,12 +83,12 @@ class SWDAnnotationPipeline:
         else:
             self.mean_npb = None
             self.std_npb = None
-
+        
         if annotate_classes is None:
             self.annotate_classes = list(self.CLASS_COLORS.keys())
         else:
             self.annotate_classes = annotate_classes
-
+        
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         print("Loading models...")
@@ -134,9 +134,9 @@ class SWDAnnotationPipeline:
             stop_early=False,
             freeze_backbone=False
         )
-
+        
         classifier.load_inference_model(backbone=self.arch)
-
+        
         if os.path.exists(checkpoint_path):
             state_dict = torch.load(checkpoint_path, map_location=self.device)
             classifier.model.load_state_dict(state_dict)
@@ -180,18 +180,56 @@ class SWDAnnotationPipeline:
         """
         Build mapping from crop folder names to image IDs and filenames.
         
+        Matches crop folders with COCO image entries. COCO filenames may have
+        extensions (.jpg) but crop folders don't, so we strip extensions.
+        
         Returns
         -------
         dict : {crop_folder_name: (image_id, image_filename, scan_name)}
         """
         mapping = {}
+        
+        crop_folders = {d.name: d for d in self.crops_dir.iterdir() if d.is_dir() and (d / 'crops').exists()}
+        
+        print(f"\nMatching {len(crop_folders)} crop folders with COCO metadata...")
+        
+        matched_count = 0
         for image_info in self.coco_data.get('images', []):
             image_id = image_info['id']
             filename = image_info['file_name']
-
-            scan_name = filename.split('/')[-2] if '/' in filename else filename.rsplit('_', 1)[0]
             
-            mapping[scan_name] = (image_id, filename, scan_name)
+            scan_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
+            
+            if scan_name in crop_folders:
+                mapping[scan_name] = (image_id, filename, scan_name)
+                matched_count += 1
+            else:
+                possible_names = []
+                
+                if '/' in filename:
+                    base = filename.split('/')[-1]
+                    base_no_ext = base.rsplit('.', 1)[0] if '.' in base else base
+                    possible_names.append(base_no_ext)
+                    
+                    possible_names.append(filename.split('/')[-2])
+                
+                for possible_name in possible_names:
+                    if possible_name in crop_folders:
+                        mapping[possible_name] = (image_id, filename, possible_name)
+                        matched_count += 1
+                        break
+        
+        print(f"✓ Matched {matched_count} of {len(self.coco_data.get('images', []))} COCO images with crop folders")
+        
+        if matched_count == 0:
+            print("\n WARNING: No crop folders matched with COCO metadata!")
+            print("Debugging info:")
+            print(f"  Crop folder names (first 3):")
+            for name in sorted(crop_folders.keys())[:3]:
+                print(f"    - {name}")
+            print(f"  COCO filenames (first 3):")
+            for img in self.coco_data.get('images', [])[:3]:
+                print(f"    - {img['file_name']}")
         
         return mapping
     
@@ -313,7 +351,7 @@ class SWDAnnotationPipeline:
             Confidence score
         """
         draw = ImageDraw.Draw(image)
-
+        
         x, y, w, h = bbox
         x1, y1 = int(x), int(y)
         x2, y2 = int(x + w), int(y + h)
@@ -327,7 +365,7 @@ class SWDAnnotationPipeline:
             font = ImageFont.truetype("arial.ttf", 12)
         except:
             font = ImageFont.load_default()
-        
+
         text_bbox = draw.textbbox((x1, y1 - 20), label_text, font=font)
         draw.rectangle(text_bbox, fill=color)
         draw.text((x1, y1 - 20), label_text, fill=(255, 255, 255), font=font)
@@ -357,7 +395,7 @@ class SWDAnnotationPipeline:
             
             if not crops_path.exists():
                 continue
-            
+
             if scan_name not in self.crop_to_image_mapping:
                 print(f"Warning: {scan_name} not found in COCO metadata")
                 continue
@@ -368,7 +406,7 @@ class SWDAnnotationPipeline:
             for idx, annotation in enumerate(annotations):
                 crop_filename = f"crop_{idx:06d}.png"
                 crop_path = crops_path / crop_filename
-
+                
                 crop_files = list(crops_path.glob(f"*{idx:06d}*"))
                 if not crop_files:
                     crop_files = list(crops_path.glob("*.png"))
@@ -420,10 +458,27 @@ class SWDAnnotationPipeline:
                 continue
             
             _, image_filename, _ = self.crop_to_image_mapping[scan_name]
-            scan_path = self.scans_dir / image_filename
             
-            if not scan_path.exists():
-                print(f"Warning: Original scan not found: {scan_path}")
+            scan_path = None
+            
+            potential_path = self.scans_dir / image_filename
+            if potential_path.exists():
+                scan_path = potential_path
+            
+            if not scan_path:
+                for ext in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
+                    potential_path = self.scans_dir / f"{scan_name}{ext}"
+                    if potential_path.exists():
+                        scan_path = potential_path
+                        break
+
+            if not scan_path:
+                for potential_path in self.scans_dir.rglob(f"{scan_name}*"):
+                    if potential_path.is_file() and potential_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
+                        scan_path = potential_path
+                        break
+            
+            if not scan_path:
                 continue
 
             image = Image.open(scan_path).convert('RGB')
@@ -462,7 +517,7 @@ class SWDAnnotationPipeline:
         all_predictions = []
         for predictions in predictions_by_scan.values():
             all_predictions.extend(predictions)
-        
+
         for pred in all_predictions:
             stats['class_counts'][pred['class']] += 1
             if pred['class'] in self.annotate_classes:
@@ -553,7 +608,7 @@ def main():
         device = args.device
     
     print(f"Using device: {device}")
-    
+
     pipeline = SWDAnnotationPipeline(
         binary_model_path=args.binary_model,
         multi_model_path=args.multi_model,
