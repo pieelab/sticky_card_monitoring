@@ -515,6 +515,8 @@ class SWDAnnotationPipeline:
         confidence_threshold : float
             Minimum confidence to draw
         """
+        Image.MAX_IMAGE_PIXELS = None
+
         for scan_name, predictions in tqdm(predictions_by_scan.items(), desc="Annotating scans"):
             if scan_name not in self.crop_to_image_mapping:
                 continue
