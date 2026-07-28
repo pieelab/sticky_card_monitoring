@@ -194,8 +194,8 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
 
     Optionally splits raw data into train/val/test sets before training. Supports
     training from scratch ("raw" mode) or fine-tuning from a pretrained checkpoint.
-    After training, saves the model, plots the training history, and outputs a
-    confusion matrix.
+    After training, saves the model with NPB values embedded in the checkpoint,
+    plots the training history, and outputs a confusion matrix.
 
     Parameters
     ----------
@@ -229,6 +229,12 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         per bounding box (NPB) from the training set and passes them to
         SegmentClassifier for size-aware sampling. If False, MEAN_NPB and
         STD_NPB are set to None.
+    num_classes : int
+        Number of output classes for classification.
+    epochs : int
+        Number of training epochs.
+    learning_rate : float
+        Learning rate for the optimizer.
 
     Raises
     ------
@@ -256,11 +262,6 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
     if split:
         filenames, num_files = split_data(source_data_dir, destination_data_dir)
 
-    if size_aware:
-        MEAN_NPB, STD_NPB = calculate_mean_std_npb(os.path.join(destination_data_dir, "train"))
-    else:
-        MEAN_NPB, STD_NPB = None, None
-
     print(f"Creating SegmentClassifier")
     run_id = id_num + datetime.today().strftime("%m-%d-%H-%M")
 
@@ -278,7 +279,7 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         classifier = SegmentClassifier(id=run_id, data_dir=destination_data_dir, num_classes=num_classes,
                                        device=device, optim=2,
                                        lr=learning_rate, batch_size=32, num_workers=4, Transform=Transform, sample=True,
-                                       loss_weights=True, mean_npb=MEAN_NPB, std_npb=STD_NPB)
+                                       loss_weights=True)
         print(f"Loading data")
 
         train_loader, val_loader = classifier.load_data()
@@ -292,11 +293,28 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
             val_targets_labels.append(idx2class[target.max()])
             val_preds_labels.append(idx2class[pred.max()])
 
+        # Save checkpoint with NPB values embedded
+        enhanced_checkpoint = {
+            'state_dict': classifier.model.state_dict(),
+            'mean_npb': classifier.mean_npb,
+            'std_npb': classifier.std_npb,
+            'architecture': arch,
+            'num_classes': num_classes,
+            'run_id': run_id,
+            'size_aware': size_aware,
+            'epoch': epochs,
+        }
+        
+        model_save_path = os.path.join(models_dir, f"SegmentClassifier_{run_id}.pt")
         try:
-            torch.save(classifier.model.state_dict(), os.path.join(models_dir, f"SegmentClassifier_{run_id}.pt"))
-        except:
-            print("Could not save")
-
+            torch.save(enhanced_checkpoint, model_save_path)
+            print(f"  Saved model checkpoint with NPB values:")
+            print(f"  Path: {model_save_path}")
+            print(f"  Mean NPB: {classifier.mean_npb:.2f}")
+            print(f"  Std NPB: {classifier.std_npb:.2f}")
+            print(f"  Architecture: {arch}")
+        except Exception as e:
+            print(f" Error saving checkpoint: {e}")
 
         # UNCOMMENT LATER
         # plot_training_history(history, run_id=run_id, outputs_train_dir=outputs_train_dir)
@@ -307,18 +325,56 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         plt.savefig(os.path.join(outputs_train_dir, f"confusion_matrix_{run_id}.png"))
 
         # current_datetime = datetime.datetime.now()
-        print("stop")
+        print("Training complete!")
     else:
         classifier = SegmentClassifier(id=run_id, data_dir=destination_data_dir, num_classes=num_classes,
                                        device=device, optim=2,
                                        lr=learning_rate, batch_size=32, num_workers=4, Transform=Transform, sample=True,
-                                       loss_weights=True, mean_npb=MEAN_NPB, std_npb=STD_NPB)
-        pretrained = torch.load(model_path)
+                                       loss_weights=True)
+        
+        # Load checkpoint - handle both new enhanced format and old state_dict format
+        checkpoint_data = torch.load(model_path)
+        if isinstance(checkpoint_data, dict) and 'state_dict' in checkpoint_data:
+            # Enhanced checkpoint format with NPB values
+            pretrained = checkpoint_data['state_dict']
+            if 'mean_npb' in checkpoint_data and 'std_npb' in checkpoint_data:
+                classifier.mean_npb = checkpoint_data['mean_npb']
+                classifier.std_npb = checkpoint_data['std_npb']
+                print(f" Loaded pretrained model with NPB values:")
+                print(f"  Mean NPB: {classifier.mean_npb:.2f}")
+                print(f"  Std NPB: {classifier.std_npb:.2f}")
+        else:
+            # Legacy state_dict format - mean_npb/std_npb will be calculated from training data
+            pretrained = checkpoint_data
+            print(" Loaded legacy checkpoint (no NPB values stored)")
+            print(f"  NPB values will be recalculated from training data")
+        
         train_loader, val_loader = classifier.load_data()
         classifier.load_model(pretrained, backbone=arch)
         print(f"Fitting pretrained SegmentClassifier")
-        history = classifier.fit(num_epochs=1, unfreeze_after=10, train_loader=train_loader, val_loader=val_loader, checkpoint_dir=checkpoint_dir)
-        print("Finished")
+        history = classifier.fit(num_epochs=epochs, unfreeze_after=10, train_loader=train_loader, val_loader=val_loader, checkpoint_dir=checkpoint_dir)
+        
+        # Save finetuned checkpoint with NPB values
+        enhanced_checkpoint = {
+            'state_dict': classifier.model.state_dict(),
+            'mean_npb': classifier.mean_npb,
+            'std_npb': classifier.std_npb,
+            'architecture': arch,
+            'num_classes': num_classes,
+            'run_id': run_id,
+            'size_aware': size_aware,
+            'epoch': epochs,
+        }
+        
+        model_save_path = os.path.join(models_dir, f"SegmentClassifier_{run_id}_finetuned.pt")
+        try:
+            torch.save(enhanced_checkpoint, model_save_path)
+            print(f" Saved finetuned checkpoint with NPB values:")
+            print(f" Path: {model_save_path}")
+        except Exception as e:
+            print(f" Error saving finetuned checkpoint: {e}")
+        
+        print("Finetuning complete!")
 
 def main():
     classify(**cli_args())

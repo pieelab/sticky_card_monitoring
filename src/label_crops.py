@@ -18,6 +18,7 @@ import torch.nn as nn
 #import open_clip
 import torch.optim.lr_scheduler as lr_scheduler
 import torch.hub
+from pathlib import Path
 
 def extract_info(filename):
     """
@@ -55,7 +56,7 @@ def extract_info(filename):
     npa = int(npa.split(".")[0])  # Remove file extension
     return w, h, npb, npa
 
-# Function to calculate mean and standard deviation of width and height
+# Function to calculate mean and standard deviation of NPB across all training images
 def calculate_mean_std_npb(directory):
     """ 
     Function to calculate mean and standard deviation of mask pixel counts
@@ -69,9 +70,9 @@ def calculate_mean_std_npb(directory):
 
     Returns
     -------
-    mean_npb
+    mean_npb : float
         Mean number of pixels in mask before resizing.
-    std_npb
+    std_npb : float
         Standard deviation in mask pixel count before resizing.
 
     See Also
@@ -83,10 +84,21 @@ def calculate_mean_std_npb(directory):
     for root, dirs, files in os.walk(directory):
         for filename in files:
             if filename.endswith(tuple(IMG_EXTENSIONS)):  # Ensure it is an image file
-                _, _, npb, _ = extract_info(filename)
-                npb_list.append(npb)
-    mean_npb = np.mean(npb_list)
-    std_npb = np.std(npb_list)
+                try:
+                    _, _, npb, _ = extract_info(filename)
+                    npb_list.append(npb)
+                except (ValueError, IndexError):
+                    # Skip files that don't match expected format
+                    continue
+    
+    if len(npb_list) > 0:
+        mean_npb = float(np.mean(npb_list))
+        std_npb = float(np.std(npb_list))
+    else:
+        # Default values if no NPB found
+        mean_npb = 0.0
+        std_npb = 1.0
+    
     return mean_npb, std_npb
 
 # TODO modify OrigResNet50 and SizeResNet50 classes to save class mappings (+ number of classes) as attributes
@@ -669,10 +681,10 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         Device to run training on (CPU or CUDA).
     mean_npb : float or None
         Mean number of pixels before resizing. Used as a proxy for
-        object size in the size-aware models. 
+        object size in the size-aware models. Calculated from training data.
     std_npb : float or None
         Standard deviation of number of pixels before resizing. Used 
-        alongside mean_npb.
+        alongside mean_npb. Calculated from training data.
     optim : int
         Optimizer selection. 1 = Adam, 2 = SGD.
     sample : bool
@@ -721,8 +733,10 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         mean_npb : float or None, default=None
             Mean number of pixels before resizing. When provided, it is 
             concatenated as an extra scalar feature in the classification head.
+            If None, will be calculated from training data.
         std_npb : float or None, default=None
             Standard deviation of number of pixels before resizing.
+            If None, will be calculated from training data.
         optim : int, default=1
             Optimizer choice. 1 for Adam, 2 for SGD.
         Transform : callable or None, default=None
@@ -751,8 +765,6 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         self.num_classes = num_classes  # 4
         self.val_loss = [0] * self.num_classes
         self.device = device
-        self.mean_npb = mean_npb
-        self.std_npb = std_npb
         self.optim = optim
         self.sample = sample
         self.loss_weights = loss_weights
@@ -768,6 +780,26 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         self.prev_val_acc = 0
         self.train_classes = None
         self.class_mappings = None  # Initialize as None for inference
+        
+        # Calculate NPB statistics from training data if data_dir is provided
+        if data_dir and os.path.exists(os.path.join(data_dir, "train")):
+            print("Calculating NPB statistics from training data...")
+            calculated_mean_npb, calculated_std_npb = calculate_mean_std_npb(
+                os.path.join(data_dir, "train")
+            )
+            
+            # Use provided values if given, otherwise use calculated values
+            if mean_npb is not None and std_npb is not None:
+                self.mean_npb = mean_npb
+                self.std_npb = std_npb
+            else:
+                self.mean_npb = calculated_mean_npb
+                self.std_npb = calculated_std_npb
+            
+            print(f"✓ NPB Statistics: mean={self.mean_npb:.2f}, std={self.std_npb:.2f}")
+        else:
+            self.mean_npb = mean_npb
+            self.std_npb = std_npb
 
     def load_data(self):
         """

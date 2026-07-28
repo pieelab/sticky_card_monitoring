@@ -1,3 +1,13 @@
+"""
+SWD Detection Inference Script
+
+Runs inference on flatbug-generated crops using a two-tier classifier:
+1. Binary classifier: arthropod vs debris
+2. Multi-class classifier: SWD_male, SWD_parasitoid, SBW, unidentified_arthropod
+
+Maps predictions back to original scans and produces annotated output images.
+"""
+
 import argparse
 import json
 import os
@@ -13,14 +23,18 @@ from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 import cv2
 
+# Import the SegmentClassifier from your training code
+# Adjust the import path as needed for your project structure
 sys.path.insert(0, r'C:\Users\ALANalysis\sticky_card_monitoring')
 from src.label_crops import SegmentClassifier
+
 
 class SWDAnnotationPipeline:
     """
     Pipeline for running inference on flatbug crops and annotating original scans.
     """
     
+    # Color map for different classes
     CLASS_COLORS = {
         'SWD_male': (255, 0, 0),           # Red
         'SWD_parasitoid': (0, 255, 0),     # Green
@@ -29,6 +43,7 @@ class SWDAnnotationPipeline:
         'debris': (128, 128, 128)          # Gray
     }
     
+    # Class mappings for both stages
     BINARY_CLASSES = {0: 'debris', 1: 'arthropod'}
     MULTI_CLASSES = {
         0: 'SWD_male',
@@ -77,6 +92,8 @@ class SWDAnnotationPipeline:
         self.arch = arch
         self.size_aware = size_aware
         
+        # Initialize mean_npb/std_npb - will be loaded from checkpoint in _load_model()
+        # We set dummy values here; they'll be overwritten if checkpoint contains NPB values
         if size_aware:
             self.mean_npb = 0.0
             self.std_npb = 1.0
@@ -84,20 +101,25 @@ class SWDAnnotationPipeline:
             self.mean_npb = None
             self.std_npb = None
         
+        # Set default: all classes if not specified
         if annotate_classes is None:
             self.annotate_classes = list(self.CLASS_COLORS.keys())
         else:
             self.annotate_classes = annotate_classes
         
+        # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Load models
         print("Loading models...")
         self.binary_classifier = self._load_model(binary_model_path, num_classes=2)
         self.multi_classifier = self._load_model(multi_model_path, num_classes=4)
         
+        # Load COCO metadata
         print("Loading COCO metadata...")
         self.coco_data = self._load_coco_metadata()
         
+        # Create lookup tables
         self.image_id_to_annotations = self._build_annotation_lookup()
         self.crop_to_image_mapping = self._build_crop_to_image_mapping()
         
@@ -117,6 +139,8 @@ class SWDAnnotationPipeline:
         classifier : SegmentClassifier
             Loaded classifier in eval mode
         """
+        # Create a temporary classifier instance for model loading
+        # Use dummy parameters since we only need the model structure
         classifier = SegmentClassifier(
             id="inference",
             data_dir=str(self.crops_dir),
@@ -135,12 +159,35 @@ class SWDAnnotationPipeline:
             freeze_backbone=False
         )
         
+        # Load model architecture (size_aware is determined by mean_npb/std_npb)
         classifier.load_inference_model(backbone=self.arch)
         
+        # Load weights and NPB values from checkpoint
         if os.path.exists(checkpoint_path):
-            state_dict = torch.load(checkpoint_path, map_location=self.device)
+            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+            
+            # Handle both enhanced checkpoint format (dict with metadata) and legacy format (state_dict only)
+            if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+                # Enhanced checkpoint format with NPB values
+                state_dict = checkpoint['state_dict']
+                
+                # Extract NPB values if available
+                if 'mean_npb' in checkpoint and 'std_npb' in checkpoint:
+                    self.mean_npb = checkpoint['mean_npb']
+                    self.std_npb = checkpoint['std_npb']
+                    classifier.mean_npb = self.mean_npb
+                    classifier.std_npb = self.std_npb
+                    print(f" Loaded NPB from checkpoint: mean={self.mean_npb:.2f}, std={self.std_npb:.2f}")
+                else:
+                    # Enhanced format but no NPB values (shouldn't happen with new training script)
+                    print(f" Checkpoint format enhanced but NPB values missing")
+            else:
+                # Legacy state_dict only format
+                state_dict = checkpoint
+                print(f" Legacy checkpoint format (no NPB values) - predictions may be incorrect!")
+            
             classifier.model.load_state_dict(state_dict)
-            print(f"  Loaded weights from {checkpoint_path}")
+            print(f"  Loaded model weights from {checkpoint_path}")
         else:
             raise FileNotFoundError(f"Model checkpoint not found: {checkpoint_path}")
         
@@ -189,30 +236,40 @@ class SWDAnnotationPipeline:
         """
         mapping = {}
         
+        # Get list of actual crop folders
         crop_folders = {d.name: d for d in self.crops_dir.iterdir() if d.is_dir() and (d / 'crops').exists()}
         
         print(f"\nMatching {len(crop_folders)} crop folders with COCO metadata...")
         
+        # Build mapping from COCO images
         matched_count = 0
         for image_info in self.coco_data.get('images', []):
             image_id = image_info['id']
             filename = image_info['file_name']
             
+            # Strip file extension (.jpg, .png, etc.) to get folder name
+            # COCO: "ARR_ADM-NS-23960-B014.jpg" -> "ARR_ADM-NS-23960-B014"
             scan_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
             
+            # Check if this folder exists
             if scan_name in crop_folders:
                 mapping[scan_name] = (image_id, filename, scan_name)
                 matched_count += 1
             else:
+                # Try alternative extraction methods as fallback
                 possible_names = []
                 
-                if '/' in filename:                    
+                # Method: Extract from path if filename has directory
+                if '/' in filename:
+                    # "path/to/ARR_ADM-NS-23960-B014.jpg" -> "ARR_ADM-NS-23960-B014"
                     base = filename.split('/')[-1]
                     base_no_ext = base.rsplit('.', 1)[0] if '.' in base else base
                     possible_names.append(base_no_ext)
                     
+                    # Also try directory name
                     possible_names.append(filename.split('/')[-2])
                 
+                # Check fallback names
                 for possible_name in possible_names:
                     if possible_name in crop_folders:
                         mapping[possible_name] = (image_id, filename, possible_name)
@@ -222,7 +279,7 @@ class SWDAnnotationPipeline:
         print(f"✓ Matched {matched_count} of {len(self.coco_data.get('images', []))} COCO images with crop folders")
         
         if matched_count == 0:
-            print("\n⚠ WARNING: No crop folders matched with COCO metadata!")
+            print("\n WARNING: No crop folders matched with COCO metadata!")
             print("Debugging info:")
             print(f"  Crop folder names (first 3):")
             for name in sorted(crop_folders.keys())[:3]:
@@ -283,6 +340,8 @@ class SWDAnnotationPipeline:
             filename = Path(crop_path).stem  # Get filename without extension
             parts = filename.split('_')
             
+            # Format: ..._<width>_<height>_<npb>_<npa>
+            # The last 4 parts should be: width, height, npb, npa
             if len(parts) >= 4:
                 try:
                     width = int(parts[-4])
@@ -325,18 +384,24 @@ class SWDAnnotationPipeline:
         }
         """
         try:
+            # Load and prepare crop
             img_tensor = self._load_crop(crop_path).to(self.device)
             
+            # Extract metadata from filename if size_aware
             npb_tensor = None
             if self.size_aware:
                 metadata = self._extract_metadata_from_filename(crop_path)
                 if metadata:
                     npb = float(metadata['npb'])
+                    # Normalize npb using mean and std
+                    # If mean_npb/std_npb are 0/1, this just returns the raw value
                     npb_norm = (npb - self.mean_npb) / self.std_npb if self.std_npb != 0 else npb
                     npb_tensor = torch.tensor([npb_norm], dtype=torch.float32).to(self.device)
                 else:
+                    # If we can't extract npb, use 0 as default
                     npb_tensor = torch.tensor([0.0], dtype=torch.float32).to(self.device)
             
+            # First stage: binary classification
             binary_input = {"img": img_tensor}
             if self.size_aware and npb_tensor is not None:
                 binary_input["npb"] = npb_tensor
@@ -354,6 +419,7 @@ class SWDAnnotationPipeline:
                 'multi_confidence': None
             }
             
+            # Second stage: multi-class classification (only if arthropod)
             if binary_class == 'arthropod':
                 multi_input = {"img": img_tensor}
                 if self.size_aware and npb_tensor is not None:
@@ -397,10 +463,10 @@ class SWDAnnotationPipeline:
         else:
             return prediction['multi_class'] if prediction['multi_class'] else 'unidentified'
     
-        
     def _draw_bbox(self, image, bbox, label, confidence):
         """
         Draw a bounding box with label on an image.
+        
         Parameters
         ----------
         image : PIL.Image
@@ -414,20 +480,26 @@ class SWDAnnotationPipeline:
         """
         draw = ImageDraw.Draw(image)
         
+        # Convert COCO format [x, y, w, h] to corner coordinates
         x, y, w, h = bbox
         x1, y1 = int(x), int(y)
         x2, y2 = int(x + w), int(y + h)
         
+        # Get color for this class
         color = self.CLASS_COLORS.get(label, (255, 255, 255))
         
+        # Draw rectangle
         draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
         
+        # Draw label
         label_text = f"{label}\n{confidence:.2f}"
         try:
+            # Try to use a nice font if available
             font = ImageFont.truetype("arial.ttf", 12)
         except:
             font = ImageFont.load_default()
         
+        # Draw text background
         text_bbox = draw.textbbox((x1, y1 - 20), label_text, font=font)
         draw.rectangle(text_bbox, fill=color)
         draw.text((x1, y1 - 20), label_text, fill=(255, 255, 255), font=font)
@@ -447,6 +519,7 @@ class SWDAnnotationPipeline:
         """
         predictions_by_scan = defaultdict(list)
         
+        # Iterate through crop folders
         crop_folders = [d for d in self.crops_dir.iterdir() if d.is_dir() and (d / 'crops').exists()]
         
         print(f"\nRunning inference on {len(crop_folders)} scans...")
@@ -458,6 +531,7 @@ class SWDAnnotationPipeline:
             if not crops_path.exists():
                 continue
             
+            # Get image info from COCO data
             if scan_name not in self.crop_to_image_mapping:
                 print(f"Warning: {scan_name} not found in COCO metadata")
                 continue
@@ -465,10 +539,12 @@ class SWDAnnotationPipeline:
             image_id, image_filename, _ = self.crop_to_image_mapping[scan_name]
             annotations = self.image_id_to_annotations[image_id]
             
+            # Classify each crop
             for idx, annotation in enumerate(annotations):
-                crop_filename = f"crop_{idx:06d}.png"
+                crop_filename = f"crop_{idx:06d}.png"  # Adjust based on your naming
                 crop_path = crops_path / crop_filename
                 
+                # Try to find the actual crop file
                 crop_files = list(crops_path.glob(f"*{idx:06d}*"))
                 if not crop_files:
                     crop_files = list(crops_path.glob("*.png"))
@@ -482,10 +558,12 @@ class SWDAnnotationPipeline:
                 if not crop_path.exists():
                     continue
                 
+                # Run inference
                 prediction = self._classify_crop(crop_path)
                 final_class = self._get_final_class(prediction)
                 confidence = prediction['multi_confidence'] if prediction['multi_class'] else prediction['binary_confidence']
                 
+                # Store prediction with annotation data
                 predictions_by_scan[scan_name].append({
                     'annotation_id': annotation['id'],
                     'bbox': annotation['bbox'],
@@ -497,9 +575,11 @@ class SWDAnnotationPipeline:
                     'multi_confidence': prediction['multi_confidence']
                 })
         
+        # Load original scans and draw annotations
         print("\nCreating annotated scans...")
         self._annotate_scans(predictions_by_scan, confidence_threshold)
         
+        # Generate summary statistics
         stats = self._generate_statistics(predictions_by_scan)
         
         return stats
@@ -515,27 +595,36 @@ class SWDAnnotationPipeline:
         confidence_threshold : float
             Minimum confidence to draw
         """
+        # Increase PIL's maximum image size limit for high-resolution scans
+        # Default limit is ~179 million pixels, but scientific images can exceed this
+        # Setting to None removes the limit entirely (safe for legitimate high-res images)
         Image.MAX_IMAGE_PIXELS = None
-
+        
         for scan_name, predictions in tqdm(predictions_by_scan.items(), desc="Annotating scans"):
+            # Get scan information
             if scan_name not in self.crop_to_image_mapping:
                 continue
             
             _, image_filename, _ = self.crop_to_image_mapping[scan_name]
             
+            # Try to find the scan file - might be with or without extension
             scan_path = None
             
+            # Method 1: Use the exact filename from COCO
             potential_path = self.scans_dir / image_filename
             if potential_path.exists():
                 scan_path = potential_path
             
+            # Method 2: Try to find by scan name (might have different extension)
             if not scan_path:
+                # Look for any image file matching the scan name
                 for ext in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
                     potential_path = self.scans_dir / f"{scan_name}{ext}"
                     if potential_path.exists():
                         scan_path = potential_path
                         break
             
+            # Method 3: Check in subdirectories (in case scans are organized by folder)
             if not scan_path:
                 for potential_path in self.scans_dir.rglob(f"{scan_name}*"):
                     if potential_path.is_file() and potential_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
@@ -545,12 +634,15 @@ class SWDAnnotationPipeline:
             if not scan_path:
                 continue
             
+            # Load original scan
             image = Image.open(scan_path).convert('RGB')
             
+            # Draw annotations (only for classes in annotate_classes list)
             for pred in predictions:
                 if pred['confidence'] >= confidence_threshold and pred['class'] in self.annotate_classes:
                     self._draw_bbox(image, pred['bbox'], pred['class'], pred['confidence'])
             
+            # Save annotated image
             output_path = self.output_dir / f"annotated_{scan_name}.jpg"
             image.save(output_path, quality=95)
     
@@ -581,13 +673,16 @@ class SWDAnnotationPipeline:
         all_predictions = []
         for predictions in predictions_by_scan.values():
             all_predictions.extend(predictions)
-
+        
+        # Count by class
         for pred in all_predictions:
             stats['class_counts'][pred['class']] += 1
+            # Count annotated classes separately
             if pred['class'] in self.annotate_classes:
                 stats['annotated_class_counts'][pred['class']] += 1
                 stats['annotated_detections'] += 1
-
+        
+        # Confidence statistics
         for class_name in self.CLASS_COLORS.keys():
             class_preds = [p['confidence'] for p in all_predictions if p['class'] == class_name]
             if class_preds:
@@ -616,7 +711,8 @@ class SWDAnnotationPipeline:
         
         results_dir = Path(results_dir)
         results_dir.mkdir(parents=True, exist_ok=True)
-
+        
+        # Convert defaultdict to regular dict for JSON serialization
         stats_json = {
             'total_scans': stats['total_scans'],
             'total_detections': stats['total_detections'],
@@ -628,7 +724,8 @@ class SWDAnnotationPipeline:
             'confidence_stats': stats['confidence_stats'],
             'timestamp': stats['timestamp']
         }
-
+        
+        # Save statistics
         stats_path = results_dir / 'inference_stats.json'
         with open(stats_path, 'w') as f:
             json.dump(stats_json, f, indent=2)
@@ -665,14 +762,16 @@ def main():
                              'Use this to skip unidentified arthropods: --annotate_classes SWD_male SWD_parasitoid SBW')
     
     args = parser.parse_args()
-
+    
+    # Determine device
     if args.device == 'auto':
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     else:
         device = args.device
     
     print(f"Using device: {device}")
-
+    
+    # Create pipeline
     pipeline = SWDAnnotationPipeline(
         binary_model_path=args.binary_model,
         multi_model_path=args.multi_model,
@@ -684,10 +783,13 @@ def main():
         arch=args.arch,
         size_aware=args.size_aware
     )
-
+    
+    # Run inference
     stats = pipeline.run_inference(confidence_threshold=args.threshold)
-
+    
+    # Save results
     pipeline.save_results(stats)
+
 
 if __name__ == '__main__':
     main()
