@@ -39,7 +39,7 @@ class SWDAnnotationPipeline:
         'SWD_male': (255, 0, 0),           # Red
         'SWD_parasitoid': (0, 255, 0),     # Green
         'SBW': (0, 0, 255),                # Blue
-        'unidentified': (255, 255, 0),     # Yellow
+        'unidentified': (0, 255, 255),     # Cyan
         'debris': (128, 128, 128)          # Gray
     }
     
