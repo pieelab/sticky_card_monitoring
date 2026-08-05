@@ -39,7 +39,7 @@ class SWDAnnotationPipeline:
         'SWD_male': (255, 0, 0),           # Red
         'SWD_parasitoid': (0, 255, 0),     # Green
         'SBW': (0, 0, 255),                # Blue
-        'unidentified': (0, 255, 255),     # Cyan
+        'unidentified': (255, 255, 0),     # Yellow
         'debris': (128, 128, 128)          # Gray
     }
     
@@ -54,7 +54,8 @@ class SWDAnnotationPipeline:
     
     def __init__(self, binary_model_path, multi_model_path, crops_dir, 
                  scans_dir, output_dir, device='cuda' if torch.cuda.is_available() else 'cpu',
-                 annotate_classes=None, arch='resnet50', size_aware=False):
+                 annotate_classes=None, arch='resnet50', size_aware=False,
+                 multi_only=False, binary_only=False):
         """
         Initialize the annotation pipeline.
         
@@ -82,6 +83,14 @@ class SWDAnnotationPipeline:
         size_aware : bool, optional
             Set to True if your models were trained with size awareness (-a flag).
             Default: False. Must match the training configuration.
+        multi_only : bool, optional
+            If True, skip binary classification and run only multi-class model.
+            Assumes all crops are arthropods. Useful for testing/debugging.
+            Default: False.
+        binary_only : bool, optional
+            If True, run only binary classification (arthropod vs debris).
+            Useful for testing/debugging the first stage.
+            Default: False.
         """
         self.binary_model_path = binary_model_path
         self.multi_model_path = multi_model_path
@@ -91,6 +100,8 @@ class SWDAnnotationPipeline:
         self.device = device
         self.arch = arch
         self.size_aware = size_aware
+        self.multi_only = multi_only
+        self.binary_only = binary_only
         
         # Initialize mean_npb/std_npb - will be loaded from checkpoint in _load_model()
         # We set dummy values here; they'll be overwritten if checkpoint contains NPB values
@@ -110,10 +121,20 @@ class SWDAnnotationPipeline:
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Load models
+        # Load models (only load what's needed based on mode)
         print("Loading models...")
-        self.binary_classifier = self._load_model(binary_model_path, num_classes=2)
-        self.multi_classifier = self._load_model(multi_model_path, num_classes=4)
+        if multi_only:
+            print("  Mode: Multi-class only (skipping binary classifier)")
+            self.binary_classifier = None
+            self.multi_classifier = self._load_model(multi_model_path, num_classes=4)
+        elif binary_only:
+            print("  Mode: Binary only (skipping multi-class classifier)")
+            self.binary_classifier = self._load_model(binary_model_path, num_classes=2)
+            self.multi_classifier = None
+        else:
+            print("  Mode: Normal (both classifiers)")
+            self.binary_classifier = self._load_model(binary_model_path, num_classes=2)
+            self.multi_classifier = self._load_model(multi_model_path, num_classes=4)
         
         # Load COCO metadata
         print("Loading COCO metadata...")
@@ -177,14 +198,14 @@ class SWDAnnotationPipeline:
                     self.std_npb = checkpoint['std_npb']
                     classifier.mean_npb = self.mean_npb
                     classifier.std_npb = self.std_npb
-                    print(f" Loaded NPB from checkpoint: mean={self.mean_npb:.2f}, std={self.std_npb:.2f}")
+                    print(f"  ✓ Loaded NPB from checkpoint: mean={self.mean_npb:.2f}, std={self.std_npb:.2f}")
                 else:
                     # Enhanced format but no NPB values (shouldn't happen with new training script)
-                    print(f" Checkpoint format enhanced but NPB values missing")
+                    print(f"  ⚠ Checkpoint format enhanced but NPB values missing")
             else:
                 # Legacy state_dict only format
                 state_dict = checkpoint
-                print(f" Legacy checkpoint format (no NPB values) - predictions may be incorrect!")
+                print(f"  ⚠ Legacy checkpoint format (no NPB values) - predictions may be incorrect!")
             
             classifier.model.load_state_dict(state_dict)
             print(f"  Loaded model weights from {checkpoint_path}")
@@ -279,7 +300,7 @@ class SWDAnnotationPipeline:
         print(f"✓ Matched {matched_count} of {len(self.coco_data.get('images', []))} COCO images with crop folders")
         
         if matched_count == 0:
-            print("\n WARNING: No crop folders matched with COCO metadata!")
+            print("\n⚠ WARNING: No crop folders matched with COCO metadata!")
             print("Debugging info:")
             print(f"  Crop folder names (first 3):")
             for name in sorted(crop_folders.keys())[:3]:
@@ -364,9 +385,10 @@ class SWDAnnotationPipeline:
     @torch.no_grad()
     def _classify_crop(self, crop_path):
         """
-        Run inference on a crop image through both classifiers.
+        Run inference on a crop image through classifiers.
         
         Handles both size-aware and non-size-aware models.
+        Supports multi_only mode (skip binary) or binary_only mode (skip multi).
         For size-aware models, extracts npb from the rescaled crop filename.
         
         Parameters
@@ -401,7 +423,34 @@ class SWDAnnotationPipeline:
                     # If we can't extract npb, use 0 as default
                     npb_tensor = torch.tensor([0.0], dtype=torch.float32).to(self.device)
             
-            # First stage: binary classification
+            result = {
+                'binary_class': None,
+                'binary_confidence': None,
+                'multi_class': None,
+                'multi_confidence': None
+            }
+            
+            # Mode: multi_only - skip binary classification
+            if self.multi_only:
+                # Assume all inputs are arthropods
+                result['binary_class'] = 'arthropod'
+                result['binary_confidence'] = 1.0  # Confidence = 1.0 (assumed)
+                
+                # Run multi-class classification directly
+                multi_input = {"img": img_tensor}
+                if self.size_aware and npb_tensor is not None:
+                    multi_input["npb"] = npb_tensor
+                
+                multi_logits = self.multi_classifier.model(multi_input)
+                multi_probs = torch.nn.functional.softmax(multi_logits, dim=1)
+                multi_pred = torch.argmax(multi_logits, dim=1).item()
+                multi_confidence = multi_probs[0, multi_pred].item()
+                result['multi_class'] = self.MULTI_CLASSES[multi_pred]
+                result['multi_confidence'] = multi_confidence
+                
+                return result
+            
+            # Normal flow or binary_only mode: run binary classification first
             binary_input = {"img": img_tensor}
             if self.size_aware and npb_tensor is not None:
                 binary_input["npb"] = npb_tensor
@@ -412,14 +461,14 @@ class SWDAnnotationPipeline:
             binary_confidence = binary_probs[0, binary_pred].item()
             binary_class = self.BINARY_CLASSES[binary_pred]
             
-            result = {
-                'binary_class': binary_class,
-                'binary_confidence': binary_confidence,
-                'multi_class': None,
-                'multi_confidence': None
-            }
+            result['binary_class'] = binary_class
+            result['binary_confidence'] = binary_confidence
             
-            # Second stage: multi-class classification (only if arthropod)
+            # If binary_only mode, skip multi-class
+            if self.binary_only:
+                return result
+            
+            # Normal flow: run multi-class classification (only if arthropod)
             if binary_class == 'arthropod':
                 multi_input = {"img": img_tensor}
                 if self.size_aware and npb_tensor is not None:
@@ -489,13 +538,13 @@ class SWDAnnotationPipeline:
         color = self.CLASS_COLORS.get(label, (255, 255, 255))
         
         # Draw rectangle
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=5)
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
         
         # Draw label
         label_text = f"{label}\n{confidence:.2f}"
         try:
             # Try to use a nice font if available
-            font = ImageFont.truetype("arial.ttf", 25)
+            font = ImageFont.truetype("arial.ttf", 12)
         except:
             font = ImageFont.load_default()
         
@@ -760,6 +809,12 @@ def main():
                         help='Classes to annotate (e.g., SWD_male SWD_parasitoid SBW). '
                              'If not specified, all classes are annotated. '
                              'Use this to skip unidentified arthropods: --annotate_classes SWD_male SWD_parasitoid SBW')
+    parser.add_argument('--multi_only', action='store_true',
+                        help='Skip binary classification and run only multi-class model. '
+                             'Assumes all crops are arthropods. Useful for testing/debugging.')
+    parser.add_argument('--binary_only', action='store_true',
+                        help='Run only binary classification (arthropod vs debris). '
+                             'Useful for testing/debugging the first stage.')
     
     args = parser.parse_args()
     
@@ -781,7 +836,9 @@ def main():
         device=device,
         annotate_classes=args.annotate_classes,
         arch=args.arch,
-        size_aware=args.size_aware
+        size_aware=args.size_aware,
+        multi_only=args.multi_only,
+        binary_only=args.binary_only
     )
     
     # Run inference
