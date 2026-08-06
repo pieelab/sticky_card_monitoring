@@ -9,7 +9,7 @@ The labeller is designed with two goals in mind:
 1. flag all probable arthropods on a sticky card
 2. flag probable strawberry blossom weevils, probable male spotted-wing drosophilae, and probable spotted-wing drosophila parasitoid wasps
 
-In training and inferring with this model, we have obtained these segments by running Svenning et al.'s [`flatbug`](https://github.com/darsa-group/flat-bug) script on scans of sticky cards collected from the field. `flatbug`, intended to segment all individual arthropods into individual images, performs well but still makes some mistakes. Some of the segments it produces feature only parts of arthropods, multiple arthropods, or non-arthropod material such as plant matter. To address these project goals as well as the errors that flatbug still produces we leverage the following two image classification model:
+In training and inferring with this model, we have obtained these segments by running Svenning et al.'s [`flatbug`](https://github.com/darsa-group/flat-bug) script on scans of sticky cards collected from the field. `flatbug`, intended to segment all individual arthropods into individual images, performs well but still makes some mistakes. Some of the segments it produces feature only parts of arthropods, multiple arthropods, or non-arthropod material such as plant matter. To address these project goals as well as the errors that flatbug still produces we leverage the following two stage image classification model:
 
 - **Stage 1** - Classifies crops into:
   1. Arthropod
