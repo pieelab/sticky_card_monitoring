@@ -23,12 +23,12 @@ The first stage effectively flags probable arthropods, while the second stage fu
 
 The labeller is based on [`DinoV2`](https://github.com/facebookresearch/dinov2) architecture and uses ImageNet-1k weights. Class imbalance characterises both training and expected deployment data. The dataset used to build the models was composed as follows:
 
-1. 81,546 Arthropod
-  1. 697 Small_black_weevil
-  2. 283 SWD_parasitoid
-  3. 78 SWD_male
-  4. 80,488 Unidentified Arthropod
-2. 11,373 Debris
+- 81,546 Arthropod
+  - 697 Small_black_weevil
+  - 283 SWD_parasitoid
+  - 78 SWD_male
+  - 80,488 Unidentified Arthropod
+- 11,373 Debris
 
 These data originated from a cross-Canada survey conducted in 2022. Please contact the PIEE Lab if you have further questions.
 
