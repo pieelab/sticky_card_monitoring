@@ -538,13 +538,13 @@ class SWDAnnotationPipeline:
         color = self.CLASS_COLORS.get(label, (255, 255, 255))
         
         # Draw rectangle
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=5)
         
         # Draw label
         label_text = f"{label}\n{confidence:.2f}"
         try:
             # Try to use a nice font if available
-            font = ImageFont.truetype("arial.ttf", 12)
+            font = ImageFont.truetype("arial.ttf", 30)
         except:
             font = ImageFont.load_default()
         
