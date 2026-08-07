@@ -203,14 +203,27 @@ class SimpleModelEvaluator:
         return img_tensor.to(self.device)
     
     def _extract_npb_from_filename(self, filename):
-        """Extract NPB from filename if available"""
+        """Extract NPB from filename if available
+        
+        Parameters
+        ----------
+        filename : str or Path
+            Filename like 'crop_000000_width_height_npb_npa.png'
+        """
         try:
-            # Filename format: crop_000000_width_height_npb_npa.png
-            parts = filename.stem.split('_')
+            # Convert to string if Path object
+            if hasattr(filename, 'stem'):
+                filename_str = filename.stem
+            else:
+                # Remove extension from string
+                filename_str = filename.rsplit('.', 1)[0] if '.' in filename else filename
+            
+            # Filename format: crop_000000_width_height_npb_npa
+            parts = filename_str.split('_')
             if len(parts) >= 5:
                 npb = float(parts[-2])
                 return npb
-        except (ValueError, IndexError):
+        except (ValueError, IndexError, AttributeError):
             pass
         return None
     
@@ -484,8 +497,8 @@ def main():
                         help='Path to test directory (with class subdirectories)')
     parser.add_argument('-n', '--num_classes', type=int, required=True,
                         help='Number of classes')
-    parser.add_argument('--class_names', type=str, nargs='+', default=None,
-                        help='Class names in order')
+    parser.add_argument('--class_names', type=str, nargs='+', 
+                        help='Class names in order (example: --class_names SBW SWD_male SWD_parasitoid unidentified)')
     parser.add_argument('-o', '--output_dir', type=str, default='evaluation_results',
                         help='Output directory for results')
     parser.add_argument('-r', '--arch', type=str, default='resnet50',
