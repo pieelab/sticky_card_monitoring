@@ -88,6 +88,7 @@ class SimpleModelEvaluator:
         self.size_aware = size_aware
         
         self.class_names = class_names or [f"class_{i}" for i in range(num_classes)]
+        self.class_names_from_dirs = None  # Will be populated by _load_test_data
         
         # Load model
         self.model = self._load_model()
@@ -159,15 +160,19 @@ class SimpleModelEvaluator:
         # Find class subdirectories
         class_dirs = sorted([d for d in self.test_dir.iterdir() if d.is_dir()])
         
+        print("\nDirectory to Class Mapping (Alphabetical Order):")
+        dir_names = [d.name for d in class_dirs]
+        
+        # Extract class names from directories (alphabetical order)
+        self.class_names_from_dirs = dir_names
+        self.class_names = dir_names  # Override provided class_names with actual directory names
+        
         for class_idx, class_dir in enumerate(class_dirs):
-            class_name = class_dir.name
+            dir_name = class_dir.name
             
-            # Map directory name to class index
-            try:
-                label = self.class_names.index(class_name)
-            except ValueError:
-                # Use directory index if name not in class_names
-                label = class_idx
+            # Use directory index as the label (matches alphabetical order)
+            label = class_idx
+            actual_class_name = dir_name
             
             # Find all images
             image_files = sorted(
@@ -178,10 +183,10 @@ class SimpleModelEvaluator:
                 test_data.append({
                     'path': img_path,
                     'label': label,
-                    'class_name': self.class_names[label] if label < len(self.class_names) else f"class_{label}"
+                    'class_name': actual_class_name
                 })
             
-            print(f"  {class_name}: {len(image_files)} images (label={label})")
+            print(f"  [{label}] '{dir_name}': {len(image_files)} images")
         
         print(f"  Total: {len(test_data)} images\n")
         return test_data
