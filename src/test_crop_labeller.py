@@ -316,35 +316,30 @@ class SimpleModelEvaluator:
         results['overall_accuracy'] = float(overall_accuracy)
         
         # Per-class metrics
+        # Compute overall metrics with average=None to get per-class scores
+        prec_all = precision_score(labels, predictions, average=None, zero_division=0, 
+                                   labels=list(range(self.num_classes)))
+        rec_all = recall_score(labels, predictions, average=None, zero_division=0,
+                              labels=list(range(self.num_classes)))
+        f1_all = f1_score(labels, predictions, average=None, zero_division=0,
+                         labels=list(range(self.num_classes)))
+        
         per_class = {}
         for class_idx, class_name in enumerate(self.class_names):
             class_mask = labels == class_idx
             class_count = int(class_mask.sum())
             
             if class_count > 0:
-                class_preds = predictions[class_mask]
-                class_labels = labels[class_mask]
-                
-                acc = accuracy_score(class_labels, class_preds)
-                prec = precision_score(class_labels, class_preds, 
-                                      average='binary' if self.num_classes == 2 else 'weighted',
-                                      zero_division=0)
-                rec = recall_score(class_labels, class_preds,
-                                  average='binary' if self.num_classes == 2 else 'weighted',
-                                  zero_division=0)
-                f1 = f1_score(class_labels, class_preds,
-                             average='binary' if self.num_classes == 2 else 'weighted',
-                             zero_division=0)
-                
-                # Per-class F1 (not averaged)
-                f1_per_class = f1_score(class_labels, class_preds, zero_division=0)
+                # Accuracy for this class: (correct predictions / total predictions for this class)
+                class_correct = (predictions[class_mask] == class_idx).sum()
+                acc = float(class_correct) / class_count if class_count > 0 else 0.0
                 
                 per_class[class_name] = {
                     'count': class_count,
                     'accuracy': float(acc),
-                    'precision': float(prec),
-                    'recall': float(rec),
-                    'f1': float(f1_per_class),
+                    'precision': float(prec_all[class_idx]),
+                    'recall': float(rec_all[class_idx]),
+                    'f1': float(f1_all[class_idx]),
                 }
         
         results['per_class_metrics'] = per_class
