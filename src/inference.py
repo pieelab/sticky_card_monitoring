@@ -36,20 +36,20 @@ class SWDAnnotationPipeline:
     
     # Color map for different classes
     CLASS_COLORS = {
+        'Small_black_weevil': (0, 0, 255),      # Blue
         'SWD_male': (255, 0, 0),           # Red
         'SWD_parasitoid': (0, 255, 0),     # Green
-        'SBW': (0, 0, 255),                # Blue
-        'unidentified': (255, 255, 0),     # Yellow
+        'Unidentified_Arthropod': (255, 255, 0),     # Yellow
         'debris': (128, 128, 128)          # Gray
     }
     
     # Class mappings for both stages
     BINARY_CLASSES = {0: 'debris', 1: 'arthropod'}
     MULTI_CLASSES = {
-        0: 'SWD_male',
-        1: 'SWD_parasitoid',
-        2: 'SBW',
-        3: 'unidentified'
+        0: 'Small_black_weevil',
+        1: 'SWD_male',
+        2: 'SWD_parasitoid',
+        3: 'Unidentified_Arthropod'
     }
     
     def __init__(self, binary_model_path, multi_model_path, crops_dir, 
