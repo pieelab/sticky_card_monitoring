@@ -77,6 +77,8 @@ def cli_args():
                             help="Number of epochs")
     args_parse.add_argument("-t", "--learning_rate", type=float, dest="learning_rate", required=True,
                             help="Learning Rate")
+    args_parse.add_argument("--class_weights", type=float, nargs='+', dest="class_weights",
+                        help="Class weights for loss function (space-separated, e.g., 3.0 3.0 2.0 0.5)")
     args = args_parse.parse_args()
     return vars(args)
 
@@ -188,7 +190,7 @@ def split_data(source_data_dir, destination_data_dir):
     test_files.close()
     return filenames, num_files
 
-def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, split, arch, size_aware, num_classes, epochs, learning_rate):
+def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, split, arch, size_aware, num_classes, epochs, learning_rate, class_weights=None):
     """
     Train or fine-tune a SegmentClassifier on image data, then evaluate and save results.
 
@@ -301,9 +303,9 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
     print(f"Loading model")
     if mode == "raw":
         classifier = SegmentClassifier(id=run_id, data_dir=destination_data_dir, num_classes=num_classes,
-                                       device=device, optim=2,
-                                       lr=learning_rate, batch_size=32, num_workers=4, Transform=Transform, sample=True,
-                                       loss_weights=True)
+                               device=device, optim=2,
+                               lr=learning_rate, batch_size=32, num_workers=4, Transform=Transform, sample=True,
+                               loss_weights=True, class_weights=class_weights)
         print(f"Loading data")
 
         train_loader, val_loader = classifier.load_data()
@@ -352,9 +354,9 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         print("Training complete!")
     else:
         classifier = SegmentClassifier(id=run_id, data_dir=destination_data_dir, num_classes=num_classes,
-                                       device=device, optim=2,
-                                       lr=learning_rate, batch_size=32, num_workers=4, Transform=Transform, sample=True,
-                                       loss_weights=True)
+                               device=device, optim=2,
+                               lr=learning_rate, batch_size=32, num_workers=4, Transform=Transform, sample=True,
+                               loss_weights=True, class_weights=class_weights)
         
         # Load checkpoint - handle both new enhanced format and old state_dict format
         checkpoint_data = torch.load(model_path)
