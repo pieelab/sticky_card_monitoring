@@ -715,7 +715,7 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         Flat list of class labels for all training samples. Set by load_data().
     """
     def __init__(self, id, data_dir, num_classes, device, mean_npb = None, std_npb = None, optim=1, Transform=None, sample=True, loss_weights=True,
-                 batch_size=8, num_workers=0, lr=1e-4, stop_early=True, freeze_backbone=True):
+                 batch_size=8, num_workers=0, lr=1e-4, stop_early=True, freeze_backbone=True, class_weights=None):
         """
         Constructor.
 
@@ -780,6 +780,7 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
         self.prev_val_acc = 0
         self.train_classes = None
         self.class_mappings = None  # Initialize as None for inference
+        self.class_weights = class_weights
         
         # Calculate NPB statistics from training data if data_dir is provided
         if data_dir and os.path.exists(os.path.join(data_dir, "train")):
@@ -976,17 +977,31 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
 
         self.scheduler = lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.1)
 
-        if self.loss_weights:
+        # Determine class weights
+        if self.class_weights is not None:
+            # Use provided class weights
+            weights_tensor = torch.tensor(self.class_weights, dtype=torch.float32).to(self.device)
+        elif self.loss_weights:
+            # Compute weights from training data
             class_count = Counter(self.train_classes)
-            class_weights = torch.Tensor(
-                [len(self.train_classes) / c for c in pd.Series(class_count).sort_index().values])
-            class_weights = class_weights.to(self.device)
-            self.criterion = nn.CrossEntropyLoss()
-            self.crit_weight = nn.CrossEntropyLoss(weight=class_weights)
-            self.crit_weight_none = nn.CrossEntropyLoss(weight=class_weights, reduction = 'none')
-            self.crit_noweight_none = nn.CrossEntropyLoss(reduction = 'none')
+            weights_tensor = torch.Tensor(
+                            [len(self.train_classes) / c for c in pd.Series(class_count).sort_index().values])
+            weights_tensor = weights_tensor.to(self.device)
         else:
-            self.criterion = nn.CrossEntropyLoss(reduction = 'none')
+            # No weights
+            weights_tensor = None
+
+        # Create loss functions
+        if weights_tensor is not None:
+            self.criterion = nn.CrossEntropyLoss()
+            self.crit_weight = nn.CrossEntropyLoss(weight=weights_tensor)
+            self.crit_weight_none = nn.CrossEntropyLoss(weight=weights_tensor, reduction='none')
+            self.crit_noweight_none = nn.CrossEntropyLoss(reduction='none')
+        else:
+            self.criterion = nn.CrossEntropyLoss(reduction='none')
+            self.crit_weight = nn.CrossEntropyLoss(reduction='none')
+            self.crit_weight_none = nn.CrossEntropyLoss(reduction='none')
+            self.crit_noweight_none = nn.CrossEntropyLoss(reduction='none')
 
     def unfreeze_backbone_gradually(self, epoch, unfreeze_after, 
                                 num_backbone_blocks=12,
