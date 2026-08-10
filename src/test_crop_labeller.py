@@ -458,7 +458,50 @@ class SimpleModelEvaluator:
         self._print_summary(results)
     
     def _print_summary(self, results):
+        # """Print evaluation summary"""
+        # print(f"\n{'='*70}")
+        # print("EVALUATION SUMMARY")
+        # print(f"{'='*70}")
+        # print(f"Overall Accuracy: {results['overall_accuracy']:.4f}")
+        # print(f"Test Samples: {results['num_test_samples']}")
+        # print(f"Classes: {len(self.class_names)}")
+        # print(f"Architecture: {self.arch}")
+        # if self.size_aware:
+        #     print(f"Size-Aware: Yes")
+        # print()
+        
+        # print("Per-Class Performance:")
+        # print(f"{'Class':<25} {'Count':<8} {'Accuracy':<12} {'Precision':<12} {'Recall':<12} {'F1':<10}")
+        # print("-" * 80)
+        
+        # for class_name in self.class_names:
+        #     if class_name in results['per_class_metrics']:
+        #         metrics = results['per_class_metrics'][class_name]
+        #         print(f"{class_name:<25} {metrics['count']:<8} "
+        #               f"{metrics['accuracy']:<12.4f} {metrics['precision']:<12.4f} "
+        #               f"{metrics['recall']:<12.4f} {metrics['f1']:<10.4f}")
+        
+        # print(f"{'='*70}\n")
         """Print evaluation summary"""
+        print(f"\n{'='*70}")
+        print("DEBUG INFORMATION")
+        print(f"{'='*70}")
+        print(f"self.class_names = {self.class_names}")
+        print(f"Type: {type(self.class_names)}")
+        print(f"Length: {len(self.class_names)}")
+        print()
+        print(f"results['per_class_metrics'].keys() = {list(results['per_class_metrics'].keys())}")
+        print(f"Type: {type(results['per_class_metrics'])}")
+        print()
+        
+        # Check for name matches
+        print("Name matching check:")
+        for i, class_name in enumerate(self.class_names):
+            in_results = class_name in results['per_class_metrics']
+            print(f"  [{i}] '{class_name}' in per_class_metrics? {in_results}")
+            if class_name in results['per_class_metrics']:
+                print(f"       Value: {results['per_class_metrics'][class_name]}")
+        
         print(f"\n{'='*70}")
         print("EVALUATION SUMMARY")
         print(f"{'='*70}")
@@ -478,8 +521,10 @@ class SimpleModelEvaluator:
             if class_name in results['per_class_metrics']:
                 metrics = results['per_class_metrics'][class_name]
                 print(f"{class_name:<25} {metrics['count']:<8} "
-                      f"{metrics['accuracy']:<12.4f} {metrics['precision']:<12.4f} "
-                      f"{metrics['recall']:<12.4f} {metrics['f1']:<10.4f}")
+                    f"{metrics['accuracy']:<12.4f} {metrics['precision']:<12.4f} "
+                    f"{metrics['recall']:<12.4f} {metrics['f1']:<10.4f}")
+            else:
+                print(f"{class_name:<25} NOT IN RESULTS")
         
         print(f"{'='*70}\n")
 
