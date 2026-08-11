@@ -23,12 +23,8 @@ from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 import cv2
 
-# Import the SegmentClassifier from your training code
-# Adjust the import path as needed for your project structure
 sys.path.insert(0, r'C:\Users\ALANalysis\sticky_card_monitoring')
 from src.label_crops import SegmentClassifier
-
-
 class SWDAnnotationPipeline:
     """
     Pipeline for running inference on flatbug crops and annotating original scans.
@@ -36,11 +32,11 @@ class SWDAnnotationPipeline:
     
     # Color map for different classes
     CLASS_COLORS = {
-        'Small_black_weevil': (0, 0, 255),      # Blue
-        'SWD_male': (255, 0, 0),           # Red
-        'SWD_parasitoid': (0, 255, 0),     # Green
+        'Small_black_weevil': (0, 0, 255),           # Blue
+        'SWD_male': (255, 0, 0),                     # Red
+        'SWD_parasitoid': (0, 255, 0),               # Green
         'Unidentified_Arthropod': (255, 255, 0),     # Yellow
-        'debris': (128, 128, 128)          # Gray
+        'debris': (128, 128, 128)                    # Gray
     }
     
     # Class mappings for both stages
@@ -198,14 +194,14 @@ class SWDAnnotationPipeline:
                     self.std_npb = checkpoint['std_npb']
                     classifier.mean_npb = self.mean_npb
                     classifier.std_npb = self.std_npb
-                    print(f"  ✓ Loaded NPB from checkpoint: mean={self.mean_npb:.2f}, std={self.std_npb:.2f}")
+                    print(f"  Loaded NPB from checkpoint: mean={self.mean_npb:.2f}, std={self.std_npb:.2f}")
                 else:
                     # Enhanced format but no NPB values (shouldn't happen with new training script)
-                    print(f"  ⚠ Checkpoint format enhanced but NPB values missing")
+                    print(f"  WARNING: Checkpoint format enhanced but NPB values missing")
             else:
                 # Legacy state_dict only format
                 state_dict = checkpoint
-                print(f"  ⚠ Legacy checkpoint format (no NPB values) - predictions may be incorrect!")
+                print(f"  WARNING: Legacy checkpoint format (no NPB values) - predictions may be incorrect!")
             
             classifier.model.load_state_dict(state_dict)
             print(f"  Loaded model weights from {checkpoint_path}")
@@ -297,10 +293,10 @@ class SWDAnnotationPipeline:
                         matched_count += 1
                         break
         
-        print(f"✓ Matched {matched_count} of {len(self.coco_data.get('images', []))} COCO images with crop folders")
+        print(f"  Matched {matched_count} of {len(self.coco_data.get('images', []))} COCO images with crop folders")
         
         if matched_count == 0:
-            print("\n⚠ WARNING: No crop folders matched with COCO metadata!")
+            print("\n WARNING: No crop folders matched with COCO metadata!")
             print("Debugging info:")
             print(f"  Crop folder names (first 3):")
             for name in sorted(crop_folders.keys())[:3]:
@@ -659,12 +655,12 @@ class SWDAnnotationPipeline:
             # Try to find the scan file - might be with or without extension
             scan_path = None
             
-            # Method 1: Use the exact filename from COCO
+            # Use the exact filename from COCO
             potential_path = self.scans_dir / image_filename
             if potential_path.exists():
                 scan_path = potential_path
             
-            # Method 2: Try to find by scan name (might have different extension)
+            # Try to find by scan name (might have different extension)
             if not scan_path:
                 # Look for any image file matching the scan name
                 for ext in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
@@ -673,7 +669,7 @@ class SWDAnnotationPipeline:
                         scan_path = potential_path
                         break
             
-            # Method 3: Check in subdirectories (in case scans are organized by folder)
+            # Check in subdirectories (in case scans are organized by folder)
             if not scan_path:
                 for potential_path in self.scans_dir.rglob(f"{scan_name}*"):
                     if potential_path.is_file() and potential_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
