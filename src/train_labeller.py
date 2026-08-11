@@ -378,7 +378,7 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
         except Exception as e:
             print(f" Error saving finetuned checkpoint: {e}")
         
-        print("Finetuning complete!")
+        print("Finetuning complete.")
 
 def main():
     classify(**cli_args())
