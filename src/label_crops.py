@@ -759,6 +759,8 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
             If True, freezes all backbone parameters at the start of training,
             only allowing the classification head to update. Backbone is
             unfrozen after `unfreeze_after` epochs in fit().
+        class_weights : ints, default=None
+            Custom weights to assign the classes in training.
         """
         self.id = id
         self.data_dir = data_dir  # 'data'
@@ -797,7 +799,7 @@ class SegmentClassifier():  # took out nn.Module inheritance bc of "cannot assig
                 self.mean_npb = calculated_mean_npb
                 self.std_npb = calculated_std_npb
             
-            print(f"✓ NPB Statistics: mean={self.mean_npb:.2f}, std={self.std_npb:.2f}")
+            print(f"  NPB Statistics: mean={self.mean_npb:.2f}, std={self.std_npb:.2f}")
         else:
             self.mean_npb = mean_npb
             self.std_npb = std_npb
