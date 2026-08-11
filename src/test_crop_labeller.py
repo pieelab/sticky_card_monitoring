@@ -43,8 +43,6 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 import sys
 
-# Import from label_crops
-# Note: Adjust path as needed based on your project structure
 sys.path.insert(0, str(Path(__file__).parent))
 try:
     from label_crops import (
@@ -88,14 +86,12 @@ class SimpleModelEvaluator:
         self.size_aware = size_aware
         
         self.class_names = class_names or [f"class_{i}" for i in range(num_classes)]
-        self.class_names_from_dirs = None  # Will be populated by _load_test_data
-        
-        # Load model
+        self.class_names_from_dirs = None
+
         self.model = self._load_model()
         self.mean_npb = None
         self.std_npb = None
         
-        # Load test data
         self.test_data = self._load_test_data()
     
     def _load_model(self):
@@ -112,12 +108,12 @@ class SimpleModelEvaluator:
             state_dict = checkpoint['state_dict']
             self.mean_npb = checkpoint.get('mean_npb', 0.0)
             self.std_npb = checkpoint.get('std_npb', 1.0)
-            print(f"  ✓ Loaded enhanced checkpoint")
+            print(f"    Loaded checkpoint")
             if self.mean_npb != 0.0:
                 print(f"  NPB: mean={self.mean_npb:.2f}, std={self.std_npb:.2f}")
         else:
             state_dict = checkpoint
-            print(f"  ✓ Loaded legacy checkpoint")
+            print(f"    Loaded checkpoint")
         
         # Reconstruct model architecture
         if self.arch == 'resnet50':
@@ -145,7 +141,7 @@ class SimpleModelEvaluator:
         model = model.to(self.device)
         model.eval()
         
-        print("  ✓ Model ready for inference")
+        print("    Model ready for inference")
         return model
     
     def _load_test_data(self):
@@ -382,7 +378,7 @@ class SimpleModelEvaluator:
         results_file = output_dir / 'evaluation_results.json'
         with open(results_file, 'w') as f:
             json.dump(results, f, indent=2)
-        print(f"  ✓ Results: {results_file}")
+        print(f"    Results: {results_file}")
         
         # Save confusion matrix
         try:
@@ -397,9 +393,9 @@ class SimpleModelEvaluator:
             cm_file = output_dir / 'confusion_matrix.png'
             plt.savefig(cm_file, dpi=150, bbox_inches='tight')
             plt.close()
-            print(f"  ✓ Confusion matrix: {cm_file}")
+            print(f"    Confusion matrix: {cm_file}")
         except Exception as e:
-            print(f"  ⚠ Could not save confusion matrix: {e}")
+            print(f"    WARNING: Could not save confusion matrix: {e}")
         
         # Save per-class performance
         try:
@@ -423,9 +419,9 @@ class SimpleModelEvaluator:
             perf_file = output_dir / 'per_class_metrics.png'
             plt.savefig(perf_file, dpi=150, bbox_inches='tight')
             plt.close()
-            print(f"  ✓ Per-class metrics: {perf_file}")
+            print(f"    Per-class metrics: {perf_file}")
         except Exception as e:
-            print(f"  ⚠ Could not save per-class metrics: {e}")
+            print(f"  WARNING: Could not save per-class metrics: {e}")
         
         # Save CSV predictions
         try:
@@ -450,9 +446,9 @@ class SimpleModelEvaluator:
                         row[f'prob_{cn}'] = f"{pred['class_probabilities'][cn]:.4f}"
                     writer.writerow(row)
             
-            print(f"  ✓ Predictions: {csv_file}")
+            print(f"    Predictions: {csv_file}")
         except Exception as e:
-            print(f"  ⚠ Could not save predictions CSV: {e}")
+            print(f"  WARNING: Could not save predictions CSV: {e}")
         
         # Print summary
         self._print_summary(results)
