@@ -47,6 +47,8 @@ def cli_args():
         Number of epochs to train over
     -t, --learning_rate
         Learning rate while training the model
+    --class_weights
+        Custom class weights for loss function
 
     Returns
     -------
@@ -243,40 +245,16 @@ def classify(id_num, source_data_dir, destination_data_dir, mode, model_path, sp
     FileNotFoundError
         If destination_data_dir or (when mode != "raw") model_path does not exist.
     """
-    # Basic Augmentation
-    # Transform = transforms.Compose([
-    #     transforms.ToImage(),  # Convert to tensor, only needed if you had a PIL image
-    #     # transforms.ToDtype(torch.uint8, scale=True),  # optional, most input are already uint8 at this point
-    #     transforms.RandomHorizontalFlip(p=0.5),
-    #     transforms.RandomVerticalFlip(p=0.5),
-    #     transforms.RandomApply([RandomRotation((90, 90))], p=0.5),
-    #     transforms.Resize(size=(224, 224), antialias=True),
-    #     transforms.ToDtype(torch.float32, scale=True),  # Normalize expects float input
-    #     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    # ])
-
     Transform = transforms.Compose([
-        transforms.ToImage(),
-        
-        # Geometric transformations
-        transforms.RandomHorizontalFlip(p=0.6),      # Increase from 0.5
-        transforms.RandomVerticalFlip(p=0.6),        # Increase from 0.5
-        transforms.RandomApply([RandomRotation((90, 90))], p=0.6),
-        
-        # Color transformations
-        transforms.ColorJitter(
-            brightness=0.2,      # ±20% brightness
-            contrast=0.2,        # ±20% contrast
-            saturation=0.2,      # ±20% saturation
-            hue=0.05             # ±5% hue
-        ),
-        
-        # Resize and normalize
+        transforms.ToImage(),  # Convert to tensor, only needed if you had a PIL image
+        # transforms.ToDtype(torch.uint8, scale=True),  # optional, most input are already uint8 at this point
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomVerticalFlip(p=0.5),
+        transforms.RandomApply([RandomRotation((90, 90))], p=0.5),
         transforms.Resize(size=(224, 224), antialias=True),
-        transforms.ToDtype(torch.float32, scale=True),
+        transforms.ToDtype(torch.float32, scale=True),  # Normalize expects float input
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
-
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
