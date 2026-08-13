@@ -32,19 +32,19 @@ class SWDAnnotationPipeline:
     
     # Color map for different classes
     CLASS_COLORS = {
-        'Small_black_weevil': (0, 0, 255),           # Blue
-        'SWD_male': (255, 0, 0),                     # Red
-        'SWD_parasitoid': (0, 255, 0),               # Green
-        'Unidentified_Arthropod': (255, 255, 0),     # Yellow
-        'debris': (128, 128, 128)                    # Gray
+        'Small_black_weevil': (0, 0, 255),       # Blue
+        'SWD_male': (255, 0, 0),                 # Red
+        'SWD_parasitoid': (0, 255, 0),           # Green
+        'Unidentified_Arthropod': (255, 255, 0), # Yellow
+        'debris': (128, 128, 128)                # Gray
     }
     
     # Class mappings for both stages
-    BINARY_CLASSES = {0: 'debris', 1: 'arthropod'}
+    BINARY_CLASSES = {0: 'Arthropod', 1: 'Debris'}
     MULTI_CLASSES = {
-        0: 'Small_black_weevil',
-        1: 'SWD_male',
-        2: 'SWD_parasitoid',
+        0: 'SWD_male',
+        1: 'SWD_parasitoid',
+        2: 'Small_black_weevil',
         3: 'Unidentified_Arthropod'
     }
     
@@ -539,13 +539,13 @@ class SWDAnnotationPipeline:
         color = self.CLASS_COLORS.get(label, (255, 255, 255))
         
         # Draw rectangle
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=5)
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=10)
         
         # Draw label
         label_text = f"{label}\n{confidence:.2f}"
         try:
             # Try to use a nice font if available
-            font = ImageFont.truetype("arial.ttf", 30)
+            font = ImageFont.truetype("arial.ttf", 45)
         except:
             font = ImageFont.load_default()
         
