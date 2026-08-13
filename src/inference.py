@@ -49,9 +49,9 @@ class SWDAnnotationPipeline:
     }
     
     def __init__(self, binary_model_path, multi_model_path, crops_dir, 
-                 scans_dir, output_dir, device='cuda' if torch.cuda.is_available() else 'cpu',
-                 annotate_classes=None, arch='resnet50', size_aware=False,
-                 multi_only=False, binary_only=False):
+             scans_dir, output_dir, device='cuda' if torch.cuda.is_available() else 'cpu',
+             annotate_classes=None, arch_binary='resnet50', arch_multi='dinov2_vitb14', size_aware=False,
+             multi_only=False, binary_only=False):
         """
         Initialize the annotation pipeline.
         
@@ -72,8 +72,12 @@ class SWDAnnotationPipeline:
         annotate_classes : list of str, optional
             List of class names to annotate. If None, all classes are annotated.
             Example: ['SWD_male', 'SWD_parasitoid', 'SBW'] (skip 'unidentified')
-        arch : str, optional
-            Model architecture used during training. 
+        arch_binary : str, optional
+            Binary model architecture used during training. 
+            Options: 'resnet50', 'dinov2_vitb14', 'dinov2_vitl14', etc.
+            Default: 'resnet50'. Must match the architecture used to train your models.
+        arch_multi : str, optional
+            Multi model architecture used during training. 
             Options: 'resnet50', 'dinov2_vitb14', 'dinov2_vitl14', etc.
             Default: 'resnet50'. Must match the architecture used to train your models.
         size_aware : bool, optional
@@ -94,7 +98,8 @@ class SWDAnnotationPipeline:
         self.scans_dir = Path(scans_dir)
         self.output_dir = Path(output_dir)
         self.device = device
-        self.arch = arch
+        self.arch_binary = arch_binary
+        self.arch_multi = arch_multi
         self.size_aware = size_aware
         self.multi_only = multi_only
         self.binary_only = binary_only
@@ -122,15 +127,15 @@ class SWDAnnotationPipeline:
         if multi_only:
             print("  Mode: Multi-class only (skipping binary classifier)")
             self.binary_classifier = None
-            self.multi_classifier = self._load_model(multi_model_path, num_classes=4)
+            self.multi_classifier = self._load_model(multi_model_path, num_classes=4, arch=arch_multi)
         elif binary_only:
             print("  Mode: Binary only (skipping multi-class classifier)")
-            self.binary_classifier = self._load_model(binary_model_path, num_classes=2)
+            self.binary_classifier = self._load_model(binary_model_path, num_classes=2, arch=arch_binary)
             self.multi_classifier = None
         else:
             print("  Mode: Normal (both classifiers)")
-            self.binary_classifier = self._load_model(binary_model_path, num_classes=2)
-            self.multi_classifier = self._load_model(multi_model_path, num_classes=4)
+            self.binary_classifier = self._load_model(binary_model_path, num_classes=2, arch=arch_binary)
+            self.multi_classifier = self._load_model(multi_model_path, num_classes=4, arch=arch_multi)
         
         # Load COCO metadata
         print("Loading COCO metadata...")
@@ -140,7 +145,7 @@ class SWDAnnotationPipeline:
         self.image_id_to_annotations = self._build_annotation_lookup()
         self.crop_to_image_mapping = self._build_crop_to_image_mapping()
         
-    def _load_model(self, checkpoint_path, num_classes):
+    def _load_model(self, checkpoint_path, num_classes, arch):
         """
         Load a trained SegmentClassifier model.
         
@@ -177,7 +182,7 @@ class SWDAnnotationPipeline:
         )
         
         # Load model architecture (size_aware is determined by mean_npb/std_npb)
-        classifier.load_inference_model(backbone=self.arch)
+        classifier.load_inference_model(backbone=arch)
         
         # Load weights and NPB values from checkpoint
         if os.path.exists(checkpoint_path):
@@ -795,9 +800,12 @@ def main():
                         help='Confidence threshold for annotations (default: 0.5)')
     parser.add_argument('--device', type=str, default='auto',
                         help='Device to use (cuda/cpu), default: auto')
-    parser.add_argument('--arch', type=str, default='resnet50',
-                        help='Model architecture used during training. Options: resnet50, dinov2_vitb14, dinov2_vitl14, etc. '
+    parser.add_argument('--arch_multi', type=str, default='dinov2_vitb14',
+                        help='Multi model architecture used during training. Options: resnet50, dinov2_vitb14, dinov2_vitl14, etc. '
                              'Default: resnet50. Must match the architecture used to train your models.')
+    parser.add_argument('--arch_binary', type=str, default='resnet50',
+                        help='Binary model architecture used during training. Options: resnet50, dinov2_vitb14, dinov2_vitl14, etc. '
+                        'Default: resnet50. Must match the architecture used to train your models.')
     parser.add_argument('--size_aware', action='store_true',
                         help='Use this flag if your models were trained with size awareness (-a flag). '
                              'Required if training used: -a or --size_aware')
@@ -831,7 +839,8 @@ def main():
         output_dir=args.output_dir,
         device=device,
         annotate_classes=args.annotate_classes,
-        arch=args.arch,
+        arch_binary=args.arch_binary,
+        arch_multi=args.arch_multi,
         size_aware=args.size_aware,
         multi_only=args.multi_only,
         binary_only=args.binary_only
