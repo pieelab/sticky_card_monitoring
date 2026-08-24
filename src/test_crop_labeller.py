@@ -6,23 +6,6 @@ Evaluates trained models on held-out test data and computes:
 - Per-class metrics (accuracy, precision, recall, F1)
 - Confusion matrix
 - Confidence calibration
-
-Usage:
-    python evaluate_models_simple.py \\
-        -m models/binary.pt \\
-        -t path/to/test/crops \\
-        -n 2 \\
-        --class_names arthropod debris \\
-        -o results
-
-    python evaluate_models_simple.py \\
-        -m models/multi.pt \\
-        -t path/to/test/crops \\
-        -n 4 \\
-        --class_names SWD_male SWD_parasitoid SBW unidentified \\
-        -o results \\
-        -r dinov2_vitb14 \\
-        -a
 """
 
 import argparse
@@ -388,6 +371,7 @@ class SimpleModelEvaluator:
                                          display_labels=self.class_names)
             disp.plot(ax=ax, cmap='Blues')
             plt.title('Confusion Matrix')
+            plt.xticks(rotation=45)
             plt.tight_layout()
             
             cm_file = output_dir / 'confusion_matrix.png'
