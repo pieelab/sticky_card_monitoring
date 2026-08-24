@@ -101,7 +101,7 @@ Our pretrained models were trained using the following commands:
     -e 25 \
     -t 0.01
   ```
-**This model exists as `models/SegmentClassifier-0008-13-10-57` on the PIEE lab computer**
+**This model exists as** `models/SegmentClassifier-0008-13-10-57.pt` **on the PIEE lab computer**
 
 2. **Stage 2**:
   ```bash
@@ -116,7 +116,7 @@ Our pretrained models were trained using the following commands:
     -e 25 \
     -t 1e-4
   ```
-**This model exists as `models/SegmentClassifier-2107-28-21-09` on the PIEE lab computer**
+**This model exists as** `models/SegmentClassifier-2107-28-21-09.pt` **on the PIEE lab computer**
 
 ### Annotating Scanned Sticky Cards
 
