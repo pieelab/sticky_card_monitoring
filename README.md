@@ -1,38 +1,115 @@
-### Sticky card labelling algorithm
+## Sticky card labelling algorithm
+
+### Project Motivation and Purpose
 
 Our labeller is intended for processing segments of probable arthropods from scans of sticky cards collected in Canada.
 
 The labeller is designed with two goals in mind:
 
-1. flag probable strawberry blossom weevils, probable male spotted-wing drosophilae, and probable spotted-wing drosophila parasitoid wasps
 1. flag all probable arthropods on a sticky card
+2. flag probable strawberry blossom weevils, probable male spotted-wing drosophilae, and probable spotted-wing drosophila parasitoid wasps
 
-In training and inferring with this model, we have obtained these segments by running Svenning et al.'s `flatbug` ([link](https://github.com/darsa-group/flat-bug)) script on scans of sticky cards collected from the field. `flatbug`, intended to segment all individual arthropods into individual images, performs well but still makes some mistakes. Some of the segments it produces feature only parts of arthropods, multiple arthropods, or non-arthropod material such as plant matter. In order to fulfill both goals, the labeller therefore needs to classify into five categories:
+In training and inferring with this model, we have obtained these segments by running Svenning et al.'s [`flatbug`](https://github.com/darsa-group/flat-bug) script on scans of sticky cards collected from the field. `flatbug`, intended to segment all individual arthropods into individual images, performs well but still makes some mistakes. Some of the segments it produces feature only parts of arthropods, multiple arthropods, or non-arthropod material such as plant matter. To address these project goals as well as the errors that flatbug still produces we leverage the following two stage image classification model:
 
-1. Arthropod
-1. Debris
-1. SWD_male (male spotted-wing drosophila)
-1. SWD_parasitoid (spotted-wing drosophila parasitoid)
-1. Small_black_weevil (probable strawberry blossom weevil)
+- **Stage 1** - Classifies crops into:
+  1. Arthropod
+  2. Debris
+- **Stage 2** - Classifies crops into:
+  1. SWD_male (male spotted-wing drosophila)
+  2. SWD_parasitoid (spotted-wing drosophila parasitoid)
+  3. Small_black_weevil (probable strawberry blossom weevil)
+ 
+The first stage effectively flags probable arthropods, while the second stage further classifies those probable arthropods into the pest classes of interest.
 
+The labeller is based on [`DinoV2`](https://github.com/facebookresearch/dinov2) architecture and uses ImageNet-1k weights. Class imbalance characterises both training and expected deployment data. The dataset used to build the models was composed as follows:
 
-The labeller is based on ResNet50 architecture and uses ImageNet-1k weights. Class imbalance characterises both training and expected deployment data. The dataset used to build the model was composed as follows:
-
-1. 81,546 Arthropod
-1. 11,373 Debris
-1. 697 Small_black_weevil
-1. 283 SWD_parasitoid
-1. 78 SWD_male
-
+- 81,546 Arthropod
+  - 697 Small_black_weevil
+  - 283 SWD_parasitoid
+  - 78 SWD_male
+  - 80,488 Unidentified Arthropod
+- 11,373 Debris
 
 These data originated from a cross-Canada survey conducted in 2022. Please contact the PIEE Lab if you have further questions.
 
-## Training
+## Usage
+### Cloning the Repo
+To clone the repository run:
+
+```bash
+git clone https://github.com/pieelab/sticky_card_monitoring.git
+```
+
+### Setting Up the Python Environment
+
+Navigate to the repos home directory:
+```bash
+cd sticky_card_monitoring
+```
+
+Setup the conda envuronment with:
+```bash
+conda env create -f environment.yml
+```
+
+Flatbug is not yet distributed as a python package, so install it into the environment with:
+
+```bash
+conda activate sticky-card-classifier
+cd ..
+git clone https://github.com/darsa-group/flat-bug.git
+cd flat-bug
+pip install -e .
+```
+
+### Training
 
 `train_labeller.py` has a number of arguments, described in `def cli_args()` at top of file.
 
-Among these arguments is a size-aware classification option that has not been tested with the most recent updates. This requires input data that have been processed with `04_rescale-images.py`.
+Our pretrained models were trained using the following commands:
+1. **Stage 1**:
+  ```bash
+  python .src/train_labeller.py \
+    -i 10 \
+    -d <Stage 1 Training Files> \
+    -m raw \
+    -n 2 \
+    -p .\models\ \
+    -r dinov2_vitb14 \
+    -a \
+    -e 25 \
+    -t 1e-4
+  ```
 
-## Annotating scanned sticky cards with pretrained model
+2. **Stage 2**:
+  ```bash
+  python .src/train_labeller.py \
+    -i 11 \
+    -d <Stage 2 Training Files> \
+    -m raw \
+    -n 4 \
+    -p .\models\ \
+    -r dinov2_vitb14 \
+    -a \
+    -e 25 \
+    -t 1e-4
+  ```
 
-`test_crop_labeller.py`, the annotator script, has a number of arguments (described in `def cli_args()` at top of file). Ensure that the `crops_dir` argument includes the JSON file (`coco_instances.json`) generated by `flatbug`. Please note as well that the `scans_dir` argument should include the exact scans processed by `flatbug`.
+### Annotating scanned sticky cards with pretrained model
+
+`inference.py`, the annotator script, has a number of arguments (described in `def cli_args()` at top of file). Ensure that the `crops_dir` argument includes the JSON file (`coco_instances.json`) generated by `flatbug`. Please note as well that the `scans_dir` argument should include the exact scans processed by `flatbug`. The annotate classes allows you to specify the classes to annotate: `SWD_male`, `SWD_parasitoid`, `SBW`, `unidentified`, and `debris`.
+
+Furthermore there is an option to run one or both of the models. If you wish to run only the Arthropod debris classification provide the `--binary_only` command line argument. To run just the arthropod classifications provide the `--multi_only` command line argument. To run both, don't supply any argument as that is the default behaviour.
+
+```bash
+python inference.py \
+    -b models/binary.pt \
+    -m models/multi.pt \
+    -c crops_dir \
+    -s scans_dir \
+    -o output_dir \
+    -t annotation_threshold \
+    --arch dinov2_vitb14 \
+    --annotate_classes SWD_male SWD_parasitoid SBW \
+    --size_aware
+```

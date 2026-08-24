@@ -1,0 +1,19 @@
+name: sticky-card-classifier
+channels:
+ - pytorch
+ - nvidia
+ - conda-forge
+ - defaults
+dependencies:
+ - python
+ - pillow
+ - numpy
+ - pandas
+ - tqdm
+ - scikit-learn
+ - pytorch
+ - pytorch-cuda
+ - torchvision
+ - ultralytics
+ - pdf2image
+ - matplotlib
