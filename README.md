@@ -90,9 +90,8 @@ pip install -e .
 conda activate sticky-card-classifier
 ```
 
-`train_labeller.py` has a number of arguments, described in `def cli_args()` at top of file.
+`train_labeller.py` has a number of arguments, described in `def cli_args()` at top of file. Our pretrained models were trained using the following commands:
 
-Our pretrained models were trained using the following commands:
 1. **Stage 1** (This model exists as `models/SegmentClassifier-0008-13-10-57.pt` on the PIEE lab computer):
   ```bash
   python .src/train_labeller.py \
