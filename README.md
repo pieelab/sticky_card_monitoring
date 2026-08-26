@@ -32,7 +32,7 @@ In training and inferring with this model, we have obtained these segments by ru
  
 The first stage effectively flags probable arthropods, while the second stage further classifies those probable arthropods into the pest classes of interest.
 
-The labeller is based on [`ResNet50`](https://doi.org/10.48550/arXiv.1512.03385) [`DinoV2`](https://github.com/facebookresearch/dinov2) architecture and uses ImageNet-1k weights. Class imbalance characterizes both training and expected deployment data. The dataset used to build the models was composed as follows:
+The labeller is based on [`ResNet50`](https://doi.org/10.48550/arXiv.1512.03385) and [`DinoV2`](https://github.com/facebookresearch/dinov2) architectures and uses ImageNet-1k weights. Class imbalance characterizes both training and expected deployment data. The dataset used to build the models was composed as follows:
 
 - 81,546 Arthropod
   - 697 Small_black_weevil
