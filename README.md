@@ -51,7 +51,7 @@ All files used to train and run inference can be found within the `src/` directo
 | `inference.py` | Runs inference on scans and flatbug generated crops. Draws bounding boxes around predictions with class label and confidence score. |
 | `label_crops.py` | Contains the class definition for `SegmentClassifier()`: the main class used to train and manage the state of the models. |
 | `test_crop_labeller.py` | Contains logic to run newly trained models on the test split of data. |
-| `train_labeller.py` | Contains the logic to train model. |
+| `train_labeller.py` | Contains the logic to train a model. |
 
 ## Usage
 ### Cloning the Repo
