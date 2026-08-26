@@ -88,7 +88,7 @@ pip install -e .
 `train_labeller.py` has a number of arguments, described in `def cli_args()` at top of file.
 
 Our pretrained models were trained using the following commands:
-1. **Stage 1**:
+1. **Stage 1** (This model exists as `models/SegmentClassifier-0008-13-10-57.pt` on the PIEE lab computer):
   ```bash
   python .src/train_labeller.py \
     -i 00 \
@@ -101,9 +101,7 @@ Our pretrained models were trained using the following commands:
     -e 25 \
     -t 0.01
   ```
-**This model exists as** `models/SegmentClassifier-0008-13-10-57.pt` **on the PIEE lab computer**
-
-2. **Stage 2**:
+2. **Stage 2** (This model exists as `models/SegmentClassifier-2107-28-21-09.pt` on the PIEE lab computer):
   ```bash
   python .src/train_labeller.py \
     -i 21 \
@@ -116,7 +114,6 @@ Our pretrained models were trained using the following commands:
     -e 25 \
     -t 1e-4
   ```
-**This model exists as** `models/SegmentClassifier-2107-28-21-09.pt` **on the PIEE lab computer**
 
 ### Annotating Scanned Sticky Cards
 
