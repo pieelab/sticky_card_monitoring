@@ -7,8 +7,8 @@ Given a source directory with one flat folder per class:
 
     source_dir/
         Debris/
-        Arthropod/          (generic / unidentified arthropod)
-        SBW/
+        Arthropod/               (generic / unidentified arthropod)
+        Small_black_weevil/
         SWD_male/
         SWD_parasitoid/
 
@@ -16,14 +16,7 @@ this script:
 
   1. Rescales every crop (pad to square + resize to --target-size,
      rotating so the longer side is horizontal first) and writes it into
-     an intermediate directory, one flat folder per source class:
-
-        rescaled_dir/
-            Debris/
-            Arthropod/
-            SBW/
-            SWD_male/
-            SWD_parasitoid/
+     an intermediate directory, one flat folder per source class.
 
   2. Splits each class's rescaled files into train/val/test (shuffled,
      seeded). This split is done ONCE per source class, before any
@@ -31,48 +24,40 @@ this script:
      in both stage1 and stage2 -- the two stages stay evaluated on
      consistent data.
 
-  3. Builds two output trees, in split/class layout:
+  3. Builds two output trees, in split/class layout, using the class
+     names and order hardcoded in the CLASS CONFIGURATION section below:
 
-        stage1_dest/                     (Debris vs. Arthropod)
+        stage1_dest/
             train/
-                Debris/
-                Arthropod/                <- pooled: Arthropod + SBW + SWD_male + SWD_parasitoid
-            val/
-                Debris/
-                Arthropod/
-            test/
-                Debris/
-                Arthropod/
+                0_Debris/
+                1_Arthropod/               <- pooled: Arthropod + all subclasses
+            val/    (same layout)
+            test/   (same layout)
 
-        stage2_dest/                     (4-way: subclasses + unidentified)
+        stage2_dest/
             train/
-                SBW/
-                SWD_male/
-                SWD_parasitoid/
-                unidentified_arthropod/   <- pooled from the generic Arthropod class
-            val/
-                SBW/
-                SWD_male/
-                SWD_parasitoid/
-                unidentified_arthropod/
-            test/
-                SBW/
-                SWD_male/
-                SWD_parasitoid/
-                unidentified_arthropod/
+                0_SWD_male/
+                1_SWD_parasitoid/
+                2_Small_black_weevil/
+                3_Unidentified_Arthropod/  <- pooled from the generic Arthropod class
+            val/    (same layout)
+            test/   (same layout)
 
 Files are hard-linked from the rescaled intermediate directory into
 stage1/stage2 where possible (falls back to copy across filesystems), so
 disk usage isn't duplicated for every stage. Pass --copy to force plain
 copies instead.
 
+To change which source folders map to which output class names, or their
+order/numbering, edit the CLASS CONFIGURATION constants below -- these are
+no longer CLI flags.
+
 Usage
 -----
 python build_pipeline.py \
     --source-dir data \
     --stage1-dest stage1 \
-    --stage2-dest stage2 \
-    --subclasses SBW,SWD_male,SWD_parasitoid
+    --stage2-dest stage2
 """
 
 import argparse
@@ -88,6 +73,38 @@ from tqdm import tqdm
 SPLITS = ("train", "val", "test")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 BLACK = [0, 0, 0]
+
+
+# ---------------------------------------------------------------------------
+# CLASS CONFIGURATION -- edit this to match your source folder names and
+# desired stage1 / stage2 output folder names/order. Each entry is
+# (source_folder_name_under_source_dir, output_folder_name).
+# ---------------------------------------------------------------------------
+
+# Debris class: (source_name, dest_name). dest_name is its folder name in stage1.
+DEBRIS_CLASS = ("Debris", "0_Debris")
+
+# Generic/unidentified arthropod class: source folder name only. This pools
+# into STAGE1_ARTHROPOD_NAME in stage1, and becomes its own class named
+# STAGE2_UNIDENTIFIED_NAME in stage2. Set to None if you don't have this
+# source class (stage1's Arthropod would then be subclasses-only, and
+# stage2 would have no unidentified class).
+GENERIC_ARTHROPOD_CLASS = "Arthropod"
+
+# Output folder name for the pooled Arthropod class in stage1.
+STAGE1_ARTHROPOD_NAME = "1_Arthropod"
+
+# Output folder name for the generic/unidentified arthropod class in stage2.
+# Set to None to exclude it from stage2 entirely.
+STAGE2_UNIDENTIFIED_NAME = "3_Unidentified_Arthropod"
+
+# Specific arthropod subclasses: (source_name, dest_name) pairs, in the
+# order you want them to appear in stage2.
+SUBCLASSES = [
+    ("SWD_male", "0_SWD_male"),
+    ("SWD_parasitoid", "1_SWD_parasitoid"),
+    ("Small_black_weevil", "2_Small_black_weevil"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -107,21 +124,6 @@ def cli_args():
                          help="Output root for the Debris/Arthropod dataset")
     parser.add_argument("--stage2-dest", required=True,
                          help="Output root for the subclass dataset")
-
-    parser.add_argument("--debris-class", default="Debris",
-                         help="Folder name of the debris class in source-dir")
-    parser.add_argument("--generic-arthropod-class", default="Arthropod",
-                         help="Folder name of the generic/unidentified arthropod "
-                              "class in source-dir. Pass '' if you don't have "
-                              "one and stage1's Arthropod class should be made "
-                              "up of the subclasses only.")
-    parser.add_argument("--subclasses", required=True,
-                         help="Comma-separated folder names of the specific "
-                              "subclasses, e.g. 'SBW,SWD_male,SWD_parasitoid'")
-    parser.add_argument("--stage2-unidentified-name", default="unidentified_arthropod",
-                         help="Destination folder name in stage2-dest for the "
-                              "pooled generic/unidentified arthropod class. "
-                              "Pass '' to exclude it.")
 
     parser.add_argument("--target-size", type=int, default=224,
                          help="Square size to resize crops to (default: 224)")
@@ -146,6 +148,14 @@ def cli_args():
 
     parser.add_argument("--copy", action="store_true",
                          help="Force plain file copies instead of hard links")
+
+    parser.add_argument("--cleanup-rescaled", action="store_true",
+                         help="Delete --rescaled-dir after stage1/stage2 are built. "
+                              "Only frees real disk space if --copy was used (or "
+                              "hard-linking fell back to copying, e.g. across "
+                              "filesystems) -- otherwise the rescaled files and "
+                              "the stage1/stage2 files share the same underlying "
+                              "data via hard links, and this just tidies up paths.")
 
     return parser.parse_args()
 
@@ -291,76 +301,84 @@ def populate_split_dir(files, dest_dir, force_copy):
 def main():
     args = cli_args()
 
-    subclasses = [c.strip() for c in args.subclasses.split(",") if c.strip()]
-    if not subclasses:
-        raise ValueError("--subclasses must contain at least one class name")
+    debris_source, debris_dest = DEBRIS_CLASS
+    generic_arthropod_class = GENERIC_ARTHROPOD_CLASS
+    stage2_unidentified_name = STAGE2_UNIDENTIFIED_NAME
+    subclass_pairs = SUBCLASSES
 
-    generic_arthropod_class = args.generic_arthropod_class.strip() or None
-    stage2_unidentified_name = args.stage2_unidentified_name.strip() or None
-    debris_class = args.debris_class
+    if not subclass_pairs:
+        raise ValueError("SUBCLASSES must contain at least one (source, dest) pair")
 
-    all_classes = list(subclasses)
+    # (source_name, dest_name) pairs for every class we need to rescale/split.
+    # generic_arthropod_class is never renamed at this stage -- it only ever
+    # surfaces in the output as pooled STAGE1_ARTHROPOD_NAME (stage1) or
+    # STAGE2_UNIDENTIFIED_NAME (stage2), so source == dest for it here.
+    all_class_pairs = list(subclass_pairs)
     if generic_arthropod_class:
-        all_classes.append(generic_arthropod_class)
-    all_classes.append(debris_class)
+        all_class_pairs.append((generic_arthropod_class, generic_arthropod_class))
+    all_class_pairs.append((debris_source, debris_dest))
 
-    for class_name in all_classes:
-        src_dir = os.path.join(args.source_dir, class_name)
+    for source_name, _dest_name in all_class_pairs:
+        src_dir = os.path.join(args.source_dir, source_name)
         if not os.path.isdir(src_dir):
             raise FileNotFoundError(
                 f"Expected class directory not found: {src_dir}\n"
                 f"--source-dir should point at the root containing one "
-                f"folder per class."
+                f"folder per class. Check the CLASS CONFIGURATION constants "
+                f"at the top of this script match your source folder names."
             )
 
     # --- Step 1 + 2: rescale then split, per source class -----------------
     print("Step 1/2: rescaling crops and splitting train/val/test...\n")
-    class_splits = {}
-    for class_name in all_classes:
-        src_dir = os.path.join(args.source_dir, class_name)
+    class_splits = {}  # keyed by DEST name
+    for source_name, dest_name in all_class_pairs:
+        src_dir = os.path.join(args.source_dir, source_name)
         images = find_images(src_dir, recursive=args.recursive)
         if not images:
-            print(f"Warning: no images found for class '{class_name}' in {src_dir}")
+            print(f"Warning: no images found for class '{source_name}' in {src_dir}")
 
-        rescaled_dest = os.path.join(args.rescaled_dir, class_name)
+        rescaled_dest = os.path.join(args.rescaled_dir, dest_name)
         rescaled_files = rescale_class(
-            class_name, images, rescaled_dest, args.target_size, args.add_size_info
+            dest_name, images, rescaled_dest, args.target_size, args.add_size_info
         )
 
         splits = split_files(
             rescaled_files, args.train_ratio, args.val_ratio, args.test_ratio, args.seed
         )
-        class_splits[class_name] = splits
+        class_splits[dest_name] = splits
 
-        print(f"  {class_name}: {len(rescaled_files)} rescaled "
+        label = dest_name if dest_name == source_name else f"{source_name} -> {dest_name}"
+        print(f"  {label}: {len(rescaled_files)} rescaled "
               f"-> train={len(splits['train'])} val={len(splits['val'])} "
               f"test={len(splits['test'])}")
 
+    subclass_dest_names = [dest for _source, dest in subclass_pairs]
+
     # --- Step 3: stage1 (Debris vs Arthropod) ------------------------------
     print("\nStep 3a: building stage1 (Debris vs. Arthropod)...")
-    arthropod_source_classes = list(subclasses)
+    arthropod_source_classes = list(subclass_dest_names)
     if generic_arthropod_class:
         arthropod_source_classes.append(generic_arthropod_class)
 
     for split in SPLITS:
-        debris_dest = os.path.join(args.stage1_dest, split, debris_class)
-        n = populate_split_dir(class_splits[debris_class][split], debris_dest, args.copy)
-        print(f"  {split}/{debris_class}: {n} files")
+        debris_dest_dir = os.path.join(args.stage1_dest, split, debris_dest)
+        n = populate_split_dir(class_splits[debris_dest][split], debris_dest_dir, args.copy)
+        print(f"  {split}/{debris_dest}: {n} files")
 
         pooled = []
         for c in arthropod_source_classes:
             pooled.extend(class_splits[c][split])
-        arthropod_dest = os.path.join(args.stage1_dest, split, "Arthropod")
+        arthropod_dest = os.path.join(args.stage1_dest, split, STAGE1_ARTHROPOD_NAME)
         n = populate_split_dir(pooled, arthropod_dest, args.copy)
-        print(f"  {split}/Arthropod (pooled from {arthropod_source_classes}): {n} files")
+        print(f"  {split}/{STAGE1_ARTHROPOD_NAME} (pooled from {arthropod_source_classes}): {n} files")
 
     # --- Step 3: stage2 (subclasses + unidentified) ------------------------
     print("\nStep 3b: building stage2 (subclasses + unidentified)...")
-    for subclass in subclasses:
+    for dest_name in subclass_dest_names:
         for split in SPLITS:
-            dest = os.path.join(args.stage2_dest, split, subclass)
-            n = populate_split_dir(class_splits[subclass][split], dest, args.copy)
-            print(f"  {split}/{subclass}: {n} files")
+            dest = os.path.join(args.stage2_dest, split, dest_name)
+            n = populate_split_dir(class_splits[dest_name][split], dest, args.copy)
+            print(f"  {split}/{dest_name}: {n} files")
 
     if generic_arthropod_class and stage2_unidentified_name:
         for split in SPLITS:
@@ -368,8 +386,13 @@ def main():
             n = populate_split_dir(class_splits[generic_arthropod_class][split], dest, args.copy)
             print(f"  {split}/{stage2_unidentified_name} (from {generic_arthropod_class}): {n} files")
 
+    if args.cleanup_rescaled:
+        print(f"\nCleaning up intermediate rescaled directory: {args.rescaled_dir}")
+        shutil.rmtree(args.rescaled_dir, ignore_errors=True)
+
     print("\nDone.")
-    print(f"Rescaled crops:   {args.rescaled_dir}")
+    if not args.cleanup_rescaled:
+        print(f"Rescaled crops:   {args.rescaled_dir}")
     print(f"Stage 1 dataset:  {args.stage1_dest}")
     print(f"Stage 2 dataset:  {args.stage2_dest}")
 
