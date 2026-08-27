@@ -7,6 +7,7 @@
 3. [Usage](#usage)
    - [Cloning the Repo](#cloning-the-repo)
    - [Setting Up the Python Environment](#setting-up-the-pyton-environment)
+   - [Preprocessing Training Data](#preprocessing-training-data)
    - [Training](#training)
    - [Annotating Scanned Sticky Cards](#annotating-scanned-sticky-cards)
 
@@ -50,6 +51,7 @@ All files used to train and run inference can be found within the `src/` directo
 | --- | --- |
 | `inference.py` | Runs inference on scans and flatbug generated crops. Draws bounding boxes around predictions with class label and confidence score. |
 | `label_crops.py` | Contains the class definition for `SegmentClassifier()`: the main class used to train and manage the state of the models. |
+| `preprocess.py` | Takes an unsplit, unscaled directory of crops and creates the stage1 and stage2 train, test, and val data directories. |
 | `test_crop_labeller.py` | Contains logic to run newly trained models on the test split of data. |
 | `train_labeller.py` | Contains the logic to train a model. |
 
@@ -83,6 +85,20 @@ cd flat-bug
 pip install -e .
 ```
 
+### Preprocessing the Training Data
+
+In order to train the data on an updated set of crops first move the new crops to the appropriate folder within the `A_rubi_training_unsplit` directory. Then run `preprocess.py` as follows:
+
+```bash
+python ./src/preprocess.py \
+   --source-dir "D:/sticky-card-classification/A_rubi_training_unsplit" \
+   --stage1-dest "D:/sticky-card-classification/stage1" \
+   --stage2-dest "D:/sticky-card-classification/stage2" \
+   --rescaled-dir "D:/sticky-card-classification/A_rubi_training_unsplit_rescaled"
+```
+
+Once this is complete, the stage1 and stage2 models can be retrained and validated on the new data.
+
 ### Training
 
 **Make sure you activate the environment before running any training commands:**
@@ -96,7 +112,7 @@ conda activate sticky-card-classifier
   ```bash
   python .src/train_labeller.py \
     -i 00 \
-    -d <Stage 1 Training Files> \
+    -d "D:/sticky-card-classification/stage1" \
     -m raw \
     -n 2 \
     -p .\models\ \
@@ -109,7 +125,7 @@ conda activate sticky-card-classifier
   ```bash
   python .src/train_labeller.py \
     -i 21 \
-    -d <Stage 2 Training Files> \
+    -d "D:/sticky-card-classification/stage2" \
     -m raw \
     -n 4 \
     -p .\models\ \
@@ -132,8 +148,8 @@ Furthermore there is an option to run one or both of the models. If you wish to 
 
 ```bash
 python ./src/inference.py \
-    -b models/<binary.pt> \
-    -m models/<multi.pt> \
+    -b models/<stage1.pt> \
+    -m models/<stage2.pt> \
     -c <crops_dir> \
     -s <scans_dir> \
     -o <output_dir> \
